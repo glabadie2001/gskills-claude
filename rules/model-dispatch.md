@@ -1,5 +1,9 @@
 # Model dispatch: decide the tier before implementing
 
+**HARD GUARD — applies to EVERY Agent/Workflow dispatch, including exploration and read-only fan-outs, not just implementation:** never call the Agent tool without an explicit `model:` parameter (or `agent(…, {model})` in workflows). Omitting it silently inherits the session model — a top-tier session then bills every subagent at top-tier rates. Before any dispatch, state the tier per the rubric below and pass it explicitly. If you catch yourself about to dispatch without a tier decision, stop and make one.
+
+**Label every direct Agent dispatch with its tier:** prefix the `description` with the model in brackets — `[Opus] Logout audit + DB split`, `[Haiku] Rename config keys` — so the tier is visible in the task list, not buried in the call. This applies to direct Agent-tool dispatches only; Workflow stages instead declare tiers in `meta.phases` and per-agent `label`s stay clean.
+
 When it's time to write code (a plan is approved, a spec exists, or the user says "implement"), explicitly decide which model tier executes it — don't default to doing it inline. Subagent-driven development is the default; inline execution by the top model is the exception, reserved for high-risk work.
 
 ## Decision rubric
