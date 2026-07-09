@@ -1,0 +1,13 @@
+# Secrets / machine-local — never commit these if this repo grows to mirror ~/.claude
+.credentials.json
+settings.local.json
+CLAUDE.local.md
+.mcp.json
+*.log
+
+# Claude Code runtime/state dirs (in case someone drops them in here)
+cache/
+sessions/
+projects/
+shell-snapshots/
+history.jsonl
