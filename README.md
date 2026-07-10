@@ -14,7 +14,7 @@ skills/
   orchestration/      # multi-agent topology catalog (pyramid, contractor, judge-panel, …)
     SKILL.md
     references/
-  methods/            # engineering-method playbooks (ratchet-refactor, premortem, postmortem)
+  methods/            # engineering-method playbooks (ratchet-refactor, premortem, postmortem, schema-recon)
     SKILL.md          # chooser — routes to references/ without loading them all
     references/
 agents/

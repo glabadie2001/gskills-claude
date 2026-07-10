@@ -1,6 +1,6 @@
 ---
 name: methods
-description: Catalog of engineering-method playbooks (ratchet-refactor, plan premortem, incident postmortem). Load when starting a large refactor/migration, when a plan is approved but not yet executed, or after an incident or escaped defect — pick from the catalog, then read ONLY the matching reference.
+description: Catalog of engineering-method playbooks (ratchet-refactor, plan premortem, incident postmortem, schema-recon). Load when starting a large refactor/migration, when a plan is approved but not yet executed, after an incident or escaped defect, or when onboarding an unfamiliar third-party schema/API — pick from the catalog, then read ONLY the matching reference.
 ---
 
 # Engineering methods
@@ -10,7 +10,7 @@ This file is the CHOOSER. Each method has a detailed reference in
 Pick below, then READ the matching reference before starting:
 
 - `references/ratchet-refactor.md` · `references/premortem.md`
-- `references/postmortem.md`
+- `references/postmortem.md` · `references/schema-recon.md`
 
 These are *procedures* (how to run a kind of work), where the `orchestration`
 skill's topologies are *structures* (how to shape multi-agent dispatch). They
@@ -46,6 +46,16 @@ test, durable guardrail, sibling sweep).
 - **Signature move:** every postmortem feeds a lens or guardrail back into
   premortem/ratchet, so the same failure class is caught upstream next time.
 
+### 4. Schema recon
+Onboarding an unfamiliar third-party system (ERP database, vendor API):
+inventory → docs pass (Context7) → triangulated semantic verification →
+trap ledger with evidence queries → separate write-path recon.
+- **Fits:** any new integration surface where code will depend on field
+  semantics you didn't design. Not for schemas you own.
+- **Signature move:** docs and names produce *hypotheses*; only probes
+  against the live instance produce *facts* — and falsified assumptions
+  (misleading names) are recorded as first-class findings.
+
 ## Cross-links (don't duplicate these here)
 
 - **Executor specs** — the spec-writing template lives in
@@ -63,6 +73,9 @@ test, durable guardrail, sibling sweep).
    → **2 (premortem)**, then execute.
 3. Something already broke in prod (or escaped review)? → **3 (postmortem)**,
    and let its outputs harden 1 and 2.
-4. Compose: a ratchet's sweep waves are contractor dispatches; a premortem
+4. About to integrate against a schema/API you didn't design? →
+   **4 (schema-recon)**, before the first line of integration code.
+5. Compose: a ratchet's sweep waves are contractor dispatches; a premortem
    can be run as an adversarial dispatch; a postmortem's sibling sweep is a
-   loop-until-dry.
+   loop-until-dry; a recon's trap ledger feeds premortem's wrong-assumption
+   lens.
