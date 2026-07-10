@@ -26,6 +26,17 @@ a pyramid.
    - *Diverse lenses* (correctness / security / does-it-reproduce, one critic
      each): right when the claim can fail in SEVERAL ways. Diversity catches
      failure modes redundancy can't. Requires each lens in the prompt.
+   - *Tier lenses by stakes, not uniformly.* "Critic ≥ generator" is the
+     floor, not the shape: within a lens panel, put the top model on the lens
+     guarding the property whose silent failure is irrecoverable (a sandbox
+     guarantee, an auth boundary) and hold the rest at the generator's tier.
+     Field evidence (expression-engine panel, 2026-07): lens DIVERSITY
+     dominated tier — three lenses returned perfectly disjoint findings and
+     every tier drew blood — but the top-tier lens found the subtlest
+     guarantee break (a namespace collision smuggling live entropy into a
+     promised compile-time constant). Mind propagation cost: a top-tier
+     GENERATOR forces top-tier critics panel-wide; a top-tier LENS is one
+     seat.
 3. **Critics get evidence, not conclusions.** Pass the claim plus its
    file:line evidence; let the critic re-read source. A critic that only sees
    the generator's summary can't attack the weakest link.
@@ -61,4 +72,9 @@ for (const claim of claims) {
   phrasing technicalities. Require the counterexample to be concrete:
   inputs/state → observed contradiction.
 - **Survivorship laundering** — reporting survivors without noting the vote.
-  Carry `votes` into the final output so downstream sees 2-1 vs 3-0.
+  Carry `votes` into the final output so downstream sees 2-1 vs 3-0. And
+  require each critic to report the attack routes that did NOT refute (a
+  `notes` field): "held against a 50k-case differential fuzz" and "held
+  against prototype-chain escapes" are load-bearing confidence, and a critic
+  forced to enumerate failed attacks can't fake engagement with a verdict
+  alone.
