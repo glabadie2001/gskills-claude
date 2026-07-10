@@ -9,8 +9,8 @@ winner. Beats one-attempt-iterated when a local optimum is the risk.
 | Stage | Width | Tier / effort | Notes |
 |---|---|---|---|
 | Generate | 3–5 candidates | opus or top model, `effort:'high'` | the pool quality is the ceiling — never cheap out here |
-| Judge | 2–3 judges | sonnet WITH a written rubric; opus if no rubric possible | judges score all candidates; independent, not conferring |
-| Synthesize | 1 | top model | winner + grafts from runners-up, with reasons |
+| Judge | 2–3 judges | sonnet WITH a written rubric; opus if no rubric possible | gates FIRST (pass/fail), then scores; independent, not conferring |
+| Synthesize | 1 | top model | winner + grafts from runners-up, with reasons; runs the forest check |
 
 ## Rules
 
@@ -19,20 +19,39 @@ winner. Beats one-attempt-iterated when a local optimum is the risk.
    user-first; optimize-for-migration vs optimize-for-greenfield; the
    incumbent approach vs the challenger. Identical prompts produce
    near-identical candidates and the panel degenerates to redundancy.
-2. **Write the rubric before generating.** Criteria + weights (e.g.
-   correctness under the known constraints ×3, migration cost ×2, blast
-   radius ×2, simplicity ×1). A rubric is what lets mid-tier judges work; it
-   also forces you to state what "good" means, which sometimes settles the
-   question without a panel.
-3. **Judges score independently and in isolation** — each judge scores every
-   candidate against the rubric with a one-paragraph justification per score.
-   Schema-force: `{candidate, scores: {...}, total, risks}`.
+2. **Write the rubric before generating — in two parts: gates, then
+   scores.** Gates are pass/fail constraints derived from the user's stated
+   pillars and the mission ("anything a game in the envelope needs must not
+   require a core edit"); a gate failure cannot be outscored, however high
+   the candidate totals elsewhere. Weighted criteria (e.g. correctness ×3,
+   migration cost ×2, simplicity ×1) rank only the candidates that pass.
+   Weighted scoring SMOOTHS OVER absolute violations by construction — if
+   every requirement is a weight, a mission failure is just a deduction.
+   Extract the gates by asking: what did the user say this is FOR, and what
+   outcome would make them reject the winner outright?
+3. **Judges apply gates first, score second, and never credit eloquent
+   limitations.** Candidates must declare their limitations/"cannots" in the
+   common schema, and judges test each declared limitation against the
+   gates — a well-argued wall inside the mission scope is a gate FAILURE,
+   not a point of honesty to reward. (Observed failure: a rubric asking
+   "are the cannots defensible?" trained judges to score rationalization
+   up.) Schema-force: `{candidate, gates: {gate: pass|fail, why}, scores:
+   {...}, total, risks}`.
 4. **Candidates must be commensurable.** Force a common output schema
-   (problem restatement, approach, key tradeoffs, sketch of the riskiest
-   part) so judges compare designs, not prose quality.
+   (problem restatement, approach, key tradeoffs, declared limitations,
+   sketch of the riskiest part) so judges compare designs, not prose
+   quality.
 5. **Synthesis is not just picking the winner.** Prompt it to graft: "adopt
    the winner; steal anything from the runners-up that scored higher on any
    single criterion; list what you took and why."
+6. **Synthesis runs the forest check.** Before adopting, re-read the
+   winner's declared limitations against the user's stated purpose — not
+   the rubric, the purpose. Rubric-satisfaction and mission-satisfaction
+   diverge exactly where the rubric was written imperfectly, and the panel
+   optimizes whatever frame it was given; the forest check is the one step
+   that owns questioning the frame. A limitation that violates the purpose
+   escalates to the user as a finding ("the best candidate still can't X —
+   the frame may be wrong"), it does not ship inside a winning design.
 
 ## Skeleton
 
@@ -61,5 +80,11 @@ return agent(`Winner per summed scores; graft best ideas from runners-up.\n` +
   schema and per-criterion scoring counter this.
 - **Rubric capture** — a rubric that encodes the answer ("must use events")
   makes the panel theater. Criteria describe *qualities*, not mechanisms.
+- **Pillar-blind scoring (missing the forest)** — every requirement encoded
+  as a weight, none as a gate: candidates that violate the mission's
+  pillars survive on points, and their "honest limitations" sections read
+  as rigor and score UP. The panel then unanimously crowns a design the
+  user rejects on sight. Gates before scores (rule 2), limitations tested
+  against gates (rule 3), forest check at synthesis (rule 6).
 - **Skipping synthesis grafts** — the second-best candidate usually contains
   the best single idea. Picking the winner verbatim wastes the pool.

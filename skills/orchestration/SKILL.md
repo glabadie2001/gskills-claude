@@ -58,8 +58,11 @@ the best ideas from runners-up onto the winner.
   solution spaces where one-attempt-iterated gets stuck in a local optimum.
 - **Tiers:** INVERTED — candidates are opus/top (the pool quality is the
   ceiling); judges can be sonnet *with a written rubric*; synthesis top model.
-- **Failure mode to guard:** homogeneous candidates. Vary the prompt/angle per
-  candidate, not just the seed.
+- **Failure modes to guard:** homogeneous candidates (vary the prompt/angle
+  per candidate, not just the seed) and pillar-blind scoring — state the
+  mission's hard constraints as pass/fail GATES a candidate cannot outscore,
+  not as weighted criteria, and have synthesis re-check the winner's declared
+  limitations against the user's purpose (the forest), not the rubric.
 
 ### 4. Adversarial generator–critic
 Generator produces; critic (≥ generator's tier) attacks; loop until the
