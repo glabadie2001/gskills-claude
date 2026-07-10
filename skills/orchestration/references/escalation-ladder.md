@@ -36,6 +36,17 @@ is easier than it looks, and the ladder caps the loss if it isn't.
    mechanical and verification is airtight; otherwise start at sonnet.
    Starting too low costs one cheap round; starting too high forfeits the
    ladder's entire savings.
+7. **A spike task needs its kill criterion IN the rung prompt, with "an
+   honest negative is a success" stated explicitly.** A rung can succeed
+   functionally and still rule against shipping (the task's own acceptance
+   economics — "keep it only if clearer than the alternative"). That verdict
+   is a ladder SUCCESS at the cheapest possible tier, not a failure to
+   escalate — but only if the prompt says so; an agent that just built the
+   thing will otherwise rationalize keeping it. Field evidence (Datalog lint
+   spike, 2026-07): rung-1 sonnet built a working stratified evaluator AND
+   honestly reported it lost its own fewer/clearer-lines bar; the pinned
+   delete-without-ceremony clause is what made the cheap rung's verdict
+   trustworthy, and no escalation was ever needed.
 
 ## Shape
 
