@@ -33,7 +33,17 @@ nothing new.
    remaining() is Infinity and the cap is your only brake.
 6. Stable identity keys are design work: too coarse (file only) merges
    distinct findings; too fine (message text) never dedups. file + line-bucket
-   + category is usually right.
+   + category is usually right. (Field-confirmed the hard way, 2026-07: a
+   `file::name` key where name was probe prose let one defect through as
+   three near-duplicates.)
+7. **Per-round verification needs a memory.** When verify runs inside the
+   loop, near-duplicate findings adjudicated in DIFFERENT rounds can get
+   contradictory rulings — the verifier that rejected a borderline case in
+   round 2 isn't the one seeing its twin in round 3. Either carry prior
+   rulings (confirmed AND rejected, with reasons) into every round's verify
+   prompt, or hold findings and verify once after the loop goes dry when
+   they're cheap to hold. Field evidence: the same event-payload union was
+   confirmed and rejected by different rounds of the same sweep.
 
 ## Skeleton
 
