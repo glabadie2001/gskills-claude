@@ -14,6 +14,9 @@ skills/
   orchestration/      # multi-agent topology catalog (pyramid, contractor, judge-panel, …)
     SKILL.md
     references/
+  methods/            # engineering-method playbooks (ratchet-refactor, premortem, postmortem)
+    SKILL.md          # chooser — routes to references/ without loading them all
+    references/
 agents/
   architect.md        # Senior Principal Architect — whole-codebase audit → CODE_REVIEW_FINDINGS.md
   Explore.md          # read-only fan-out search agent (returns conclusions, not file dumps)
@@ -33,6 +36,7 @@ cp -r agents/*      ~/.claude/agents/
 ln -s "$PWD/rules/model-dispatch.md"  ~/.claude/rules/model-dispatch.md
 ln -s "$PWD/rules/context7.md"        ~/.claude/rules/context7.md
 ln -s "$PWD/skills/orchestration"     ~/.claude/skills/orchestration
+ln -s "$PWD/skills/methods"           ~/.claude/skills/methods
 ln -s "$PWD/agents/architect.md"      ~/.claude/agents/architect.md
 ln -s "$PWD/agents/Explore.md"        ~/.claude/agents/Explore.md
 ```
@@ -50,3 +54,7 @@ Edit the file here, `git commit`, `git push`. On another machine, `git pull`
 
 `model-dispatch.md` tells Claude to load the `orchestration` skill before
 designing any multi-agent dispatch — so keep the two together.
+
+`skills/methods` cross-links into `skills/orchestration/references/` (spec
+template, adversarial critic, loop-until-dry) rather than duplicating them —
+install both or the links dangle.
