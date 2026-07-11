@@ -32,6 +32,20 @@ territorial ones can't.
    investigators; when validators disagree, read the code and rule").
 5. Pipeline the verify stage per-dimension when no cross-dimension dedup is
    needed; barrier only for dedup/gap-hunting.
+6. **The verify stage may be delegated to a downstream mechanical check —
+   but audit which facts it actually covers.** When the pyramid's facts feed
+   compiler/test/build-verified work (a contractor stage whose output must
+   typecheck against the claimed APIs), a wrong fact fails loudly there and a
+   dedicated verifier stage is waste — skip it. The audit that makes the skip
+   safe: walk the load-bearing claims and split them into (a) covered — a
+   downstream mechanical gate breaks if they're wrong (an API-shape claim the
+   build compiles against), and (b) uncovered — they steer a *decision* and
+   fail silent or soft (a "cheap enough to run per edit" perf claim, a "safe
+   to rewrite wholesale" coupling claim whose failure is subtle). Verify (b)
+   yourself inline before acting; it's usually a handful. Field evidence
+   (registry-browser pyramid, 2026-07: 3 mappers → spec → 2 build stages):
+   every API claim was verified by the builds' typecheck/tests; the two
+   uncovered claims (lint cost, palette decoupling) were cheap inline greps.
 
 ## Skeleton
 
@@ -65,3 +79,7 @@ return agent(SYNTH_PROMPT + inv + JSON.stringify(verdicts),
   synthesizer can't read code, it averages instead of ruling. Give it tools.
 - **Silent truncation** — if fan-out is capped (top-N files), `log()` what was
   dropped; a capped sweep that reads as exhaustive is worse than none.
+- **Verify-skip without the coverage audit** — "the build will catch it"
+  applied to decision-steering facts the build never touches (perf claims,
+  coupling claims, "nothing depends on this"). Rule 6's split is what makes
+  the skip safe, not the existence of a downstream build.
