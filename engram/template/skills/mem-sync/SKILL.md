@@ -12,6 +12,11 @@ All paths relative to repo root; memory in `.claude/memory/`.
 ## 0. Setup
 
 - `.claude/memory/MEMORY.md` missing → stop: "Engram not installed." Contains `STATUS: EMPTY` → stop: "Not initialized — run /mem-init first."
+- **Version walk:** read `.claude/memory/VERSION` (missing → 1) and the current tooling
+  version from `MIGRATIONS.md` in this skill's own directory. Memory older → apply each
+  `## vN → vN+1` section of MIGRATIONS.md in order BEFORE anything else, writing the new
+  number to VERSION after each and journaling the migration. Memory newer → stop: tooling
+  is stale; update it (engine pull + installer `-RefreshTooling`). Never downgrade.
 - Capture once: `git rev-parse --short HEAD` → `<HEAD>`, and today's date. Not a git repo → skip steps 1–2 (staleness needs git), still do 3–6.
 
 ## 1. Staleness sweep
@@ -87,6 +92,7 @@ Regenerate from the actual `atlas/` directory (excluding `_*.md`):
 
 - Table: card → `fresh` / `re-verified (N commits)` / `created` / `still stale`.
 - Index structure: flat, or which areas (and whether hierarchy was introduced this run).
+- Migrations applied this run (old → new version), if any.
 - Journals compacted (count of days archived + files deleted).
 - Done tasks pruned (count).
 - Coverage gaps (and whether `--full` filled them).

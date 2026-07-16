@@ -212,4 +212,7 @@ echo "Engram installed into $target"
 echo "Next steps:"
 echo "  1. Open Claude Code in the target and run /mem-init to bootstrap memory from the codebase."
 echo "  2. New sessions will start with an Engram brief (SessionStart hook)."
+if [ "$refresh" = "1" ]; then
+    echo "  3. Tooling refreshed on an existing install: run /mem-sync in the target - it walks any pending memory-format migrations (see .claude/skills/mem-sync/MIGRATIONS.md)."
+fi
 exit 0

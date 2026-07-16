@@ -74,6 +74,12 @@ The installer copies the memory template into `.claude/memory/`, the skills into
 block to `CLAUDE.md`. It is idempotent and will **never overwrite an existing memory**
 (`-RefreshTooling` updates skills/hooks only).
 
+**Upgrading:** Engram memory is versioned (`.claude/memory/VERSION`; a missing file
+means v1). After refreshing tooling on an existing install, run `/mem-sync` — it
+compares the memory's version against `skills/mem-sync/MIGRATIONS.md` and walks each
+migration in order, journaling what it changed. The installer never migrates memory
+itself; migrations need model judgment, so they live with the skill.
+
 Requirements: the target should be a git repository (staleness tracking is git-based;
 everything else works without it). The session-start hook runs under bash — on Windows
 that's Git Bash, which ships with Git for Windows; a PowerShell hook variant is included

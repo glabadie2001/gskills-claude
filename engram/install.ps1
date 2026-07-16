@@ -200,4 +200,7 @@ Write-Host "Engram installed into $Target"
 Write-Host "Next steps:"
 Write-Host "  1. Open Claude Code in the target and run /mem-init to bootstrap memory from the codebase."
 Write-Host "  2. New sessions will start with an Engram brief (SessionStart hook)."
+if ($RefreshTooling) {
+    Write-Host "  3. Tooling refreshed on an existing install: run /mem-sync in the target - it walks any pending memory-format migrations (see .claude\skills\mem-sync\MIGRATIONS.md)."
+}
 exit 0
