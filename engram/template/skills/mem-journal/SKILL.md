@@ -32,12 +32,23 @@ APPEND the entry at the very bottom of the file. Never edit existing entries, ne
 
 ```markdown
 ## HH:MM — One-line headline [claude-model-id · effort]
-- **Did:** what was accomplished, concretely
+- **Did:** what was accomplished, concretely — e.g. fixed refresh race in [[auth]]
 - **Learned:** non-obvious facts discovered (omit if none)
 - **Dead ends:** what was tried and FAILED, and why (omit if none)
 - **Touched:** files changed
-- **Next:** follow-ups filed, cards updated e.g. [[module]] (omit if none)
+- **Commits:** abc123f, def456a (omit if nothing committed yet)
+- **Next:** follow-ups filed, cards updated (omit if none)
 ```
+
+**Wikilink the primary module(s) this entry is about** — once, at first mention, in
+whichever line names them (usually Did: or Touched:). Not every occurrence, not
+incidental modules: a link asserts "an atlas card holds the current truth on this",
+which is what lets a future session escalate from this journal lead to verified truth.
+
+**Commits:** list the short shas this work produced (check `git log --oneline -5` and
+take only the ones from this work — never guess). If the milestone ends in a commit,
+journal AFTER committing so the sha exists. Uncommitted work → omit the line; the shas
+land in the entry for the milestone that commits it.
 
 **Signature:** end the headline with `[<your exact model id> · <effort>]`, e.g. `[claude-fable-5 · xhigh]` — your model id as stated in your system context; the session's effort level if you know it, else drop the `· effort` part. Never guess either value.
 

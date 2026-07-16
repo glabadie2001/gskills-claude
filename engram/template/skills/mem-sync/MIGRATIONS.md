@@ -1,12 +1,21 @@
 # Engram migrations
 
-**Current tooling version: 2.** The installed memory's version lives at
+**Current tooling version: 3.** The installed memory's version lives at
 `.claude/memory/VERSION` (one integer; **missing file = version 1**). /mem-sync compares
 that number against the version above and applies each `## vN → vN+1` section below in
 order, writing the new number to VERSION after each section completes and appending a
 journal entry noting the migration. Never downgrade: if memory is NEWER than this file,
 the tooling is stale — stop and tell the user to update it (engine repo pull + installer
 with `-RefreshTooling`).
+
+**Walk one hop at a time, in order — never skip ahead or combine hops**, even when the
+end state seems obvious: later sections assume earlier ones are complete. Write VERSION
+immediately after each section so an interrupted walk resumes at the right hop.
+
+**Every step is check-first (idempotent):** before applying a step, check whether its end
+state is already present (the rule already appended, the comment already replaced, the
+field already added) and skip it if so. This makes a walk that died mid-section safe to
+re-run — without it, a re-run would double-apply (e.g. a duplicated protocol rule).
 
 Migrations touch structure and metadata only. They NEVER rewrite journal entries
 (append-only), ADR bodies, or card prose.
@@ -51,3 +60,41 @@ Migrations touch structure and metadata only. They NEVER rewrite journal entries
 6. **Signatures are forward-only** — journal headlines, gotcha bullets, and ADR `By:`
    lines apply to NEW writes; never retro-sign existing entries (append-only layers stay
    untouched, and a signature you didn't witness is fabricated provenance).
+
+## v2 → v3 (journal wikilinks + commit linkage)
+
+1. **Replace the installed `journal/_template.md`** in its entirety with this canonical
+   v3 template (it's a format spec, not user data — safe to overwrite):
+
+   ````markdown
+   <!-- Journal file format — one file per day: journal/YYYY-MM-DD.md
+        Entries are APPEND-ONLY, newest at the bottom. Written by /mem-journal
+        (or directly, following this exact shape). Keep entries ≤12 lines.
+        Signature: every headline ends with [<exact model id> · <effort>], e.g.
+        [claude-fable-5 · xhigh] — the model that did the work; omit "· effort" if unknown.
+        Wikilinks: link the PRIMARY module(s) the entry is about — once, at first mention,
+        in whichever line names them. Not every occurrence, not incidental modules: a link
+        asserts "an atlas card holds the current truth on this."
+        Commits: when a milestone ends in a commit, journal AFTER committing so the sha
+        exists; never invent or guess shas. -->
+
+   # Journal — YYYY-MM-DD
+
+   ## HH:MM — One-line headline of what happened [claude-model-id · effort]
+
+   - **Did:** what was accomplished, concretely — wikilink the primary module(s) once, e.g. fixed refresh race in [[example-module]]
+   - **Learned:** non-obvious facts discovered (omit if none)
+   - **Dead ends:** what was tried and FAILED, and why — the highest-value line in this file.
+     Mark each `dead:` (don't retry — reason is permanent) or `parked:` (retry when X changes) (omit if none)
+   - **Touched:** files changed
+   - **Commits:** short shas this work produced, e.g. abc123f, def456a (omit if nothing committed yet — never invent)
+   - **Next:** follow-ups filed to tasks.md, atlas cards updated (omit if none)
+   ````
+
+2. **Forward-only** — never edit existing journal entries to add wikilinks or commit
+   shas (append-only; a sha you didn't witness being created is fabricated linkage).
+   The new format applies from the next /mem-journal write.
+
+3. If any repo-local edits were made to `mem-journal/SKILL.md` to work around the old
+   under-prompting (e.g. a manually added wikilink rule), they are superseded by the
+   refreshed skill — no action needed beyond the tooling refresh itself.

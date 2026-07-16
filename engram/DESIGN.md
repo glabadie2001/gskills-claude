@@ -82,11 +82,12 @@ mean the card needs re-verification. The index TOC shows `✓` (fresh) or `⚠ N
 `journal/YYYY-MM-DD.md`, append-only entries:
 
 ```markdown
-## 14:32 — Fixed token-refresh race
-- **Did:** serialized refresh behind a mutex in `src/auth/refresh.ts`
+## 14:32 — Fixed token-refresh race [claude-fable-5 · xhigh]
+- **Did:** serialized [[auth]] refresh behind a mutex in `src/auth/refresh.ts`
 - **Learned:** the SDK retries 401s internally — our retry doubled it
-- **Dead ends:** tried debouncing at the caller; fails because two tabs share no state
+- **Dead ends:** dead: debouncing at the caller — two tabs share no state, ever
 - **Touched:** `src/auth/refresh.ts`, `src/auth/refresh.test.ts`
+- **Commits:** e9f21c3
 - **Next:** [[auth]] card updated; consider e2e test for multi-tab
 ```
 
