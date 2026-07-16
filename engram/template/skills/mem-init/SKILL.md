@@ -69,14 +69,19 @@ For each returned draft: review for obvious nonsense (wrong language, invented f
 
 ```yaml
 ---
-module: <kebab-name>          # matches filename
+module: <kebab-name>
 paths:
   - <globs from step 1>
 verified: <captured HEAD sha, or 0000000>
 verified_date: <today, YYYY-MM-DD>
+verified_by: <exact model id of the Explore agent that read the code, e.g. claude-sonnet-5>
 ---
 <draft body>
 ```
+
+(`module` must match the filename. NO inline `#` comments in the frontmatter — parsers
+treat them as glob text. `verified_by` credits whoever actually read the code, so later
+sessions can weight their trust.)
 
 Then fix cross-card wikilinks: every name in **Depends on:** / **Used by:** must match a real card filename in `atlas/` (`[[auth]]` → `atlas/auth.md`). Rename or drop links that don't resolve.
 

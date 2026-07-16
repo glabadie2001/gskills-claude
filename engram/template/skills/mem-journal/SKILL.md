@@ -31,13 +31,15 @@ Open `.claude/memory/journal/YYYY-MM-DD.md`. If it does not exist, create it wit
 APPEND the entry at the very bottom of the file. Never edit existing entries, never insert above them. Exact entry format — keep the whole entry ≤12 lines; omit any field with nothing to say (do not write "none"):
 
 ```markdown
-## HH:MM — One-line headline
+## HH:MM — One-line headline [claude-model-id · effort]
 - **Did:** what was accomplished, concretely
 - **Learned:** non-obvious facts discovered (omit if none)
 - **Dead ends:** what was tried and FAILED, and why (omit if none)
 - **Touched:** files changed
 - **Next:** follow-ups filed, cards updated e.g. [[module]] (omit if none)
 ```
+
+**Signature:** end the headline with `[<your exact model id> · <effort>]`, e.g. `[claude-fable-5 · xhigh]` — your model id as stated in your system context; the session's effort level if you know it, else drop the `· effort` part. Never guess either value.
 
 Dead ends are the highest-value field. If anything was tried and abandoned this session, record what and why — this is what saves the next session from repeating it. Mark each one `dead:` (don't retry — the reason is permanent) or `parked:` (worth retrying when X changes); an unmarked failure gets both wrongly retried and wrongly avoided by later sessions.
 

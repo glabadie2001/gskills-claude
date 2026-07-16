@@ -111,3 +111,23 @@ Raw agent reports are archived in the session scratchpad; key URLs inline below.
 - **Success-labeled memory pruning:** research (arXiv:2505.16067) validates using
   downstream task success to retroactively prune misleading memories. Our journal records
   outcomes; a future mem-sync pass could demote cards whose guidance preceded failures.
+
+## Addendum (2026-07-16): index-hierarchy field history
+
+A dedicated survey of hierarchical index navigation (MemWalker arXiv:2310.05029, RAPTOR
+arXiv:2401.18059, GraphRAG arXiv:2404.16130, LlamaIndex TreeIndex, PageIndex, Anthropic's
+progressive-disclosure designs) confirmed the pattern's measured failure modes and the
+conditions under which it wins. Why it isn't the industry default: (1) index build/upkeep
+cost — Microsoft built LazyGraphRAG specifically because GraphRAG's LLM indexing was
+~1000x a flat baseline; (2) serial navigation latency compounds (measured >83x
+amplification under per-hop delays); (3) weak models can't navigate — MemWalker's authors
+state a reasoning-capability threshold outright; (4) staleness compounds with depth
+(every level summarizing changed content rots — the Zettelkasten "MOC upkeep" problem);
+(5) production coding agents (Claude Code, Sourcegraph, Cognition) all chose live agentic
+search over any maintained index, citing staleness/simplicity. Engram's design sits in
+the literature's winning quadrant on all counts: the corpus is small and curated, the
+navigator is a strong model, the tree is exactly two levels (one hop), and — the
+condition the failures all lack — the index is agent-maintained as part of normal work
+(mem-sync), not hand-authored and left to rot. The 2025–26 consensus ("dynamic beats
+static, flat or tree") matches Engram's shape: a capped always-loaded index + live
+Read/grep, not a static pre-built tree.

@@ -5,6 +5,7 @@ paths:
   - lib/shared/example.ts
 verified: 0000000
 verified_date: 2026-01-01
+verified_by: claude-model-id (effort)
 ---
 
 <!-- Frontmatter contract — parsed by scripts; keep it EXACTLY this shape:
@@ -15,6 +16,10 @@ verified_date: 2026-01-01
        silently breaking staleness — use two entries instead). Verify each glob matches
        files: `git ls-files '<glob>'` must produce NON-EMPTY output.
      verified: short git SHA of a COMMIT the body was last checked against.
+     verified_by: exact model id (+ effort if known) of the model that actually read the
+       code for this verification, e.g. claude-sonnet-5 or claude-fable-5 (xhigh) —
+       updated together with verified/verified_date, never separately. A card verified by
+       a smaller model at low effort deserves proportionally more spot-checking.
      NO inline # comments inside the frontmatter — parsers treat them as glob text. -->
 
 # example-module

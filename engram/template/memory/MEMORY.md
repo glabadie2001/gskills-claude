@@ -23,6 +23,10 @@
 5. **Trust order: code > fresh atlas & decisions > journal.** The journal is agent-written
    leads, not truth — never let a journal note override a fresh card or the code itself.
    Facts marked `(per user, date)` are direct user directives; they outrank inference.
+6. **Subagents propose; the orchestrating session writes.** Dispatched agents return
+   findings — only the session holding full context commits them to memory (prevents
+   write races on shared files and low-context noise). Sign what you write: journal
+   headlines and `verified_by` carry the model id + effort that did the work.
 
 ## Atlas — living codebase documentation
 

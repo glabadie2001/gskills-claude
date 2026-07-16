@@ -6,6 +6,7 @@
 
 - **Date:** YYYY-MM-DD
 - **Status:** accepted <!-- accepted | superseded by [[adr-MMM]] -->
+- **By:** claude-model-id (effort) <!-- the model that wrote this ADR; effort if known -->
 
 ## Decision
 
