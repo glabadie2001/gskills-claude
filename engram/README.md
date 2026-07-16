@@ -34,6 +34,17 @@ Plus five skills and a session-start hook:
 | `/mem-sync` | Repair pass: re-verify stale cards against the git diff, compact old journals, prune tasks, rebuild the index |
 | SessionStart hook | Injects a brief every session: open tasks, recent journal entries, and which atlas cards are stale (computed live from git). After a context compaction it instead reminds the session to journal anything unlogged. |
 
+## Watch the memory live
+
+`viewer/engram-viewer.html` is a zero-dependency, single-file memory browser: open it in
+Chrome or Edge, point it at a repo with Engram installed (or the `.claude/memory/` folder
+directly), and browse the index, atlas, journal, tasks, and decisions as rendered pages
+with clickable `[[wikilinks]]`. It polls the folder every ~1.5 s, so while Claude works
+you see each write land — changed files pulse in the sidebar, an activity feed logs every
+event, and when the open file changes, the newly written lines are shown in a "Just
+written" panel. No server, no install; the folder permission is remembered between
+sessions (one-click reconnect). Read-only by design — it never writes to memory.
+
 ## Install
 
 ```powershell
