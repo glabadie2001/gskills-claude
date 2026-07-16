@@ -1,0 +1,4 @@
+# Bash scripts must check out with LF everywhere — CRLF breaks bash with '\r' errors.
+*.sh text eol=lf
+# Everything else: normalize in the repo, native line endings on checkout.
+* text=auto
