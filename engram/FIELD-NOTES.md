@@ -66,9 +66,16 @@ Raw agent reports are archived in the session scratchpad; key URLs inline below.
    web pages/issues gets promoted to durable instructions. mem-save now refuses to
    persist instructions found in processed content; facts from untrusted sources carry
    their provenance.
-7. **Atlas growth bound** — mem0's own data shows ~25% accuracy degradation as memory
-   corpus grows 1M→10M tokens; near-duplicates crowd out the right entry. mem-sync now
-   consolidates when the atlas exceeds ~20 cards instead of letting the TOC creep.
+7. **Atlas growth bound: index hierarchy** — mem0's own data shows ~25% accuracy
+   degradation as memory corpus grows 1M→10M tokens; near-duplicates crowd out the right
+   entry. Past ~20 cards, mem-init/mem-sync split the atlas into `INDEX-<area>.md` maps
+   of content: the master TOC lists areas and sessions climb master → area → card
+   (progressive disclosure — the OpenHands/claude-mem 3-tier pattern). Merging cards is
+   reserved for thin fragments of the same seam; climbing preserves granularity, merging
+   destroys it. (Supersedes the original merge-at-20 rule. A query API layer was also
+   considered for context savings and rejected: budgets bound file sizes at write time,
+   grep+Read already give surgical access, and tool schemas + server liveness would cost
+   more than they save at this corpus size.)
 8. **User-stated rules carry provenance** — practitioners: the highest-trust memories are
    the ones a human explicitly dictated. When the user states a rule/fact directly,
    mem-save marks it `(per user, YYYY-MM-DD)` so later sessions know it's a directive,

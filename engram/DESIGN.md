@@ -31,6 +31,8 @@ Facts are stored by *how fast they change*, because that determines the write di
   MEMORY.md          # THE INDEX — always loaded, hard cap 120 lines
   atlas/             # what the code IS      (slow;   edited in place, SHA-stamped)
     <module>.md
+    INDEX-<area>.md  # area maps, only past ~20 cards: the master TOC lists areas
+                     #   and sessions climb master → area index → card
   decisions/         # why it's that way     (never;  append-only ADRs)
     NNN-slug.md
   gotchas.md         # what bites            (accumulating; dated bullets)

@@ -16,7 +16,7 @@ All paths relative to repo root; memory in `.claude/memory/`.
 
 ## 1. Staleness sweep
 
-For every `atlas/*.md` EXCEPT `_*.md` (templates, never real cards):
+For every `atlas/*.md` EXCEPT `_*.md` (templates) and `INDEX-*.md` (area indexes — TOCs, not cards):
 
 1. Parse `paths` (glob list) and `verified` (short sha) from frontmatter.
 2. Check the sha still exists: `git cat-file -t <verified>`. Fails (rebase/history rewrite/`0000000`) → treat card as FULLY STALE: re-verify the whole body against current code (no diff to guide you).
@@ -62,18 +62,31 @@ For each `journal/YYYY-MM-DD.md` (exclude `_template.md`) dated more than 14 day
 
 In `.claude/memory/tasks.md`: delete `## Done (recent)` items whose `(YYYY-MM-DD)` suffix is more than 14 days ago (undated Done items: add today's date instead of deleting). The journal keeps the story — no other section is pruned.
 
-## 5. Rebuild MEMORY.md Atlas TOC
+## 5. Rebuild the Atlas indexes
 
-Regenerate the `## Atlas` table from the actual `atlas/` directory (excluding `_*.md`):
-- Add rows for new cards; drop rows whose card file no longer exists.
+Regenerate from the actual `atlas/` directory (excluding `_*.md`):
+- **Flat atlas (≤~20 cards, no `INDEX-*.md` files):** master `## Atlas` table gets one row
+  per card. Add rows for new cards; drop rows whose card file no longer exists.
+- **Hierarchical atlas (`INDEX-*.md` files exist):** rebuild each `atlas/INDEX-<area>.md`
+  table from its member cards (keep its one-line area summary; follow `atlas/_index.md`
+  shape); master `## Atlas` table gets one row per area:
+  `| [[INDEX-<area>]] | <summary> (N cards) | ✓ all fresh / ⚠ N stale |`.
+  A card listed in no index → add it to the best-fit area's index (or directly to the
+  master table if none fits). A card in two indexes → keep one home, drop the other.
+- **Growth trigger:** the atlas is flat AND (>~20 cards OR the rebuilt MEMORY.md would
+  exceed 120 lines) → introduce hierarchy: partition cards into 3–8 areas along coarse
+  architectural seams, write one `INDEX-<area>.md` per area, switch the master table to
+  area rows. Prefer climbing over merging — merge two cards only when they're thin
+  fragments of the same seam (union `paths`, keep every invariant/gotcha, re-verify the
+  merged body, `verified: <HEAD>`).
 - Freshness markers: `✓ <verified_date>` for fresh and re-verified cards; `⚠ N commits behind` for any card left stale (e.g. a fan-out agent failed twice, or gaps reported without `--full`).
 - PRESERVE the project one-liner, `## Protocol`, and `## Where everything lives` VERBATIM.
-- Budgets: MEMORY.md ≤120 lines. Any card >60 lines → trim least-load-bearing content (verbose How-it-works prose first; never cut Invariants & gotchas).
-- Atlas >~20 cards → consolidate: merge closely-related cards along a coarser architectural seam (union their `paths`, keep every invariant/gotcha, re-verify the merged body, `verified: <HEAD>`). A crowded index is how the right card stops being found.
+- Budgets: MEMORY.md ≤120 lines; area indexes ≤60. Any card >60 lines → trim least-load-bearing content (verbose How-it-works prose first; never cut Invariants & gotchas).
 
 ## 6. Report
 
 - Table: card → `fresh` / `re-verified (N commits)` / `created` / `still stale`.
+- Index structure: flat, or which areas (and whether hierarchy was introduced this run).
 - Journals compacted (count of days archived + files deleted).
 - Done tasks pruned (count).
 - Coverage gaps (and whether `--full` filled them).

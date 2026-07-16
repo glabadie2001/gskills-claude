@@ -17,7 +17,7 @@ Prefer memory plus targeted verification over full code re-exploration. Read cod
 
 ## Procedure
 
-1. **Index.** Read `.claude/memory/MEMORY.md`. From its Atlas table, pick candidate cards for the question.
+1. **Index.** Read `.claude/memory/MEMORY.md`. From its Atlas table, pick candidate cards for the question. If a row is an area (`[[INDEX-<area>]]`), read that index file and pick candidates from its table — climb master → area → card; read only the cards you shortlist.
 2. **Search.** Grep `.claude/memory/` for keywords from the question — ALL layers: `atlas/`, `journal/` (including `journal/archive/`), `decisions/`, `gotchas.md`, `tasks.md`. Journal dead-ends and ADRs often hold the "why" that cards don't.
 3. **Read.** Read the matched atlas cards and the journal/decision hits.
 4. **Freshness check** — for EVERY card the answer will rely on:

@@ -26,7 +26,9 @@
 
 ## Atlas — living codebase documentation
 
-<!-- Maintained by /mem-init and /mem-sync. One row per card in atlas/.
+<!-- Maintained by /mem-init and /mem-sync. One row per card in atlas/ — or, when the
+     atlas outgrows this file's budget, one row per AREA ([[INDEX-<area>]] maps of
+     content): climb master → area index → card.
      Freshness: ✓ = verified at last sync · ⚠ N = N commits touched its paths since. -->
 
 | Card | What it covers | Freshness |
@@ -35,7 +37,8 @@
 
 ## Where everything lives
 
-- `atlas/<module>.md` — what each subsystem is and how it works (SHA-stamped)
+- `atlas/<module>.md` — what each subsystem is and how it works (SHA-stamped);
+  `atlas/INDEX-<area>.md` — area maps the Atlas table links to when the atlas is large
 - `journal/YYYY-MM-DD.md` — what happened, including **dead ends**; `journal/archive/` holds monthly digests
 - `tasks.md` — Now / Next / Later / Done (injected into session start automatically)
 - `decisions/NNN-slug.md` — append-only ADRs: why things are the way they are

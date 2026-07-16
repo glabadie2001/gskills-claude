@@ -26,6 +26,9 @@ Read yourself: repo root listing, README, manifest/config files (package.json, p
 Produce the module partition:
 - Aim for 5–15 cards, cut along ARCHITECTURAL seams. A module = something you'd explain as one unit ("auth", "api", "build-pipeline") — NOT a literal mirror of the directory tree.
 - Tiny repos (<~20 source files): 2–4 cards is correct. Never pad the count.
+- Big repos where a faithful partition needs >20 cards: keep the cards honest and ALSO
+  group them into 3–8 areas — you'll write hierarchical indexes in step 4. Never merge
+  unrelated modules just to fit the index budget.
 - Each planned card gets: kebab-case name, one-line scope, candidate `paths` globs.
 - VERIFY every glob actually matches files: `git ls-files '<glob>'` must produce NON-EMPTY OUTPUT (an empty result with exit 0 still means broken — check the output, not the exit code). Globs must be git-pathspec compatible: NO brace expansion (`src/{a,b}/**` matches nothing in git — use two entries). No inline `#` comments in frontmatter. A bad glob silently breaks staleness detection forever — fix or drop it now.
 
@@ -82,8 +85,12 @@ Then fix cross-card wikilinks: every name in **Depends on:** / **Used by:** must
 Edit `.claude/memory/MEMORY.md`:
 - DELETE the `> **STATUS: EMPTY — run /mem-init …**` blockquote and the one-liner HTML comment placeholder.
 - Write a real one-line project description in their place.
-- Fill the `## Atlas` table — replace the `*(empty — run /mem-init)*` placeholder row with one row per card:
-  `| [[<module>]] | <one-line scope> | ✓ <today YYYY-MM-DD> |`
+- Fill the `## Atlas` table — replace the `*(empty — run /mem-init)*` placeholder row:
+  - **≤20 cards:** one row per card: `| [[<module>]] | <one-line scope> | ✓ <today YYYY-MM-DD> |`
+  - **>20 cards:** hierarchical — write one `atlas/INDEX-<area>.md` per area from step 1
+    (shape of `atlas/_index.md`: one-line area summary + the per-card table), and give the
+    master table one row per area: `| [[INDEX-<area>]] | <summary> (N cards) | ✓ <today> |`.
+    Sessions climb master → area index → card.
 - PRESERVE the `## Protocol` section (every numbered rule, however many there are) and `## Where everything lives` VERBATIM — never reword them.
 - Total file ≤120 lines.
 
