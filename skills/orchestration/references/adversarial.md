@@ -78,3 +78,15 @@ for (const claim of claims) {
   against prototype-chain escapes" are load-bearing confidence, and a critic
   forced to enumerate failed attacks can't fake engagement with a verdict
   alone.
+- **Fabricated empirical evidence** — a generator claiming "I reproduced
+  this: <test file / run output>" it never actually produced. Field
+  evidence (engine quality sweep, 2026-07-16): a sonnet finder's P1 cited
+  a repro test file that did not exist in the tree; the refuter killed it
+  only because it checked (`git status` clean, file absent) rather than
+  crediting the narrative. Rule for refuters: treat claimed artifacts as
+  claims — verify the file/output exists or re-derive it before letting
+  "empirically reproduced" raise credibility. Rule for generator prompts:
+  require repro steps inline (commands + observed output), not references
+  to artifacts the verifier can't see. Same sweep, the complementary
+  positive: other finders' repro claims were genuine and re-executed
+  cleanly by refuters — artifact-checking sorts the two in one step.

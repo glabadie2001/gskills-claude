@@ -1,0 +1,17 @@
+{
+  "_comment": "Engram hooks fragment. ONE cross-platform SessionStart entry, grafted into the target's .claude/settings.json by both installers: shell 'bash' runs via Git Bash on Windows (ships with Git for Windows, which Engram requires anyway) and native bash on macOS/Linux, so the committed settings.json works for the whole team. PowerShell-only fallback (no Git Bash): replace command with  powershell -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR/.claude/hooks/engram-brief.ps1\"  and shell with 'powershell'. Note: ${CLAUDE_PROJECT_DIR} is expanded by the hook's shell from the environment - PowerShell syntax needs $env:, bash needs $ or ${}.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-brief.sh\"",
+            "shell": "bash",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
