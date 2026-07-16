@@ -40,10 +40,14 @@ Plus five skills and a session-start hook:
 Chrome or Edge, point it at a repo with Engram installed (or the `.claude/memory/` folder
 directly), and browse the index, atlas, journal, tasks, and decisions as rendered pages
 with clickable `[[wikilinks]]`. It polls the folder every ~1.5 s, so while Claude works
-you see each write land — changed files pulse in the sidebar, an activity feed logs every
-event, and when the open file changes, the newly written lines are shown in a "Just
-written" panel. No server, no install; the folder permission is remembered between
-sessions (one-click reconnect). Read-only by design — it never writes to memory.
+you see each write land — changed files pulse in the sidebar, and every change is captured
+as a real line diff (computed natively in the browser; the viewer caches file contents and
+runs an LCS diff, no git or Engram plumbing involved). The activity feed shows +/− counts
+per event and clicking any event replays its diff; when the open file changes, its diff
+appears in place. Diffs are session-local (from the moment the viewer connected) — for
+history before that, memory is git-tracked: `git log -p -- .claude/memory`. No server, no
+install; the folder permission is remembered between sessions (one-click reconnect).
+Read-only by design — it never writes to memory.
 
 ## Install
 

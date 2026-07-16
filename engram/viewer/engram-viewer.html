@@ -9,12 +9,14 @@
     --bg: #f7f7f5; --panel: #ffffff; --text: #1a1a18; --muted: #6b6b64;
     --border: #e3e3de; --accent: #2f6f4f; --accent-soft: #e7f2ec;
     --flash: #d9efe2; --add-bg: #eaf6ee; --add-border: #2f6f4f;
+    --del-bg: #fbe9e9; --del-text: #9c3535;
     --chip-bg: #f0f0ec; --code-bg: #f0f0ec; --danger: #a33;
   }
   [data-theme="dark"] {
     --bg: #14161a; --panel: #1c1f24; --text: #e8e8e4; --muted: #97978f;
     --border: #2b2f36; --accent: #6fbf95; --accent-soft: #21362c;
     --flash: #244132; --add-bg: #1d3227; --add-border: #6fbf95;
+    --del-bg: #3a2226; --del-text: #d98a8a;
     --chip-bg: #262a30; --code-bg: #262a30; --danger: #e08;
   }
   * { box-sizing: border-box; }
@@ -75,8 +77,16 @@
   }
   #added .t { font-weight: 600; color: var(--accent); margin-bottom: 6px; font-size: 12px;
     text-transform: uppercase; letter-spacing: .6px; }
-  #added pre { margin: 0; white-space: pre-wrap; font: 12.5px/1.5 ui-monospace, Consolas, monospace; }
   #added .dismiss { float: right; }
+  .diff { font: 12.5px/1.55 ui-monospace, Consolas, monospace; overflow-x: auto; }
+  .dl { display: block; white-space: pre-wrap; padding: 0 6px; border-radius: 3px; }
+  .dl.add { background: var(--add-bg); }
+  .dl.del { background: var(--del-bg); color: var(--del-text); }
+  .dl.ctx { color: var(--muted); }
+  .dl.hunk { color: var(--muted); text-align: center; font-size: 11px; margin: 2px 0; }
+  .evt { cursor: pointer; }
+  .evt .c-add { color: var(--accent); font-weight: 600; }
+  .evt .c-del { color: var(--del-text); font-weight: 600; }
   aside {
     width: 270px; flex: none; border-left: 1px solid var(--border); background: var(--panel);
     overflow-y: auto; padding: 12px; font-size: 12.5px;
@@ -188,6 +198,7 @@ const idb = {
 let memDir = null;            // FileSystemDirectoryHandle of .claude/memory
 let rootName = "";
 let files = new Map();        // path -> {handle, mtime, size}
+const contentCache = new Map(); // path -> last seen text (basis for diffs)
 let openPath = null;
 let openText = "";
 let pollTimer = null;
@@ -283,12 +294,27 @@ async function poll(first) {
   }
   for (const p of files.keys()) if (!next.has(p)) events.push({ type: "removed", path: p });
   files = next;
+  if (first)   // seed the diff basis silently
+    for (const p of files.keys()) contentCache.set(p, (await readFile(p)) || "");
   if (events.length || first) renderTree();
   for (const ev of events) {
+    const before = contentCache.get(ev.path) || "";
+    let after = "";
+    if (ev.type === "removed") contentCache.delete(ev.path);
+    else { after = (await readFile(ev.path)) || ""; contentCache.set(ev.path, after); }
+    ev.diff = lineDiff(before, after);
+    ev.when = new Date();
     logEvent(ev);
     if (ev.path === openPath) {
-      if (ev.type === "removed") { $("content").innerHTML = "<div class='empty'>This file was deleted.</div>"; }
-      else await refreshOpen();
+      if (ev.type === "removed") $("content").innerHTML = "<div class='empty'>This file was deleted.</div>";
+      else {
+        openText = after;
+        const keep = $("main").scrollTop;
+        renderDoc(openPath, after);
+        $("main").scrollTop = keep;
+      }
+      showDiff(ev);
+      const m = $("main"); m.classList.remove("flash"); void m.offsetWidth; m.classList.add("flash");
     }
   }
 }
@@ -361,37 +387,83 @@ async function readFile(p) {
 async function openFile(p) {
   const text = await readFile(p); if (text === null) return;
   openPath = p; openText = text;
+  contentCache.set(p, text);
   $("added").hidden = true;
   renderDoc(p, text);
   renderTree();
   $("main").scrollTop = 0;
 }
-async function refreshOpen() {
-  const text = await readFile(openPath); if (text === null) return;
-  const added = diffAdded(openText, text);
-  const keepScroll = $("main").scrollTop;
-  openText = text;
-  renderDoc(openPath, text);
-  $("main").scrollTop = keepScroll;
-  if (added.length) {
-    $("added").hidden = false;
-    $("added").innerHTML = "<button class='dismiss'>×</button><div class='t'>Just written</div><pre></pre>";
-    $("added").querySelector("pre").textContent = added.slice(0, 40).join("\n") +
-      (added.length > 40 ? "\n… +" + (added.length - 40) + " more lines" : "");
-    $("added").querySelector(".dismiss").onclick = () => $("added").hidden = true;
+
+/* ---------- native line diff (LCS with prefix/suffix trim) ---------- */
+function lineDiff(oldText, newText) {
+  const a = oldText.split("\n"), b = newText.split("\n");
+  let s = 0;
+  while (s < a.length && s < b.length && a[s] === b[s]) s++;
+  let e = 0;
+  while (e < a.length - s && e < b.length - s &&
+         a[a.length - 1 - e] === b[b.length - 1 - e]) e++;
+  const am = a.slice(s, a.length - e), bm = b.slice(s, b.length - e);
+  let ops = [];
+  if (am.length * bm.length > 500000) {          // pathological: degrade to replace-block
+    ops = [...am.map(l => ({ t: "-", l })), ...bm.map(l => ({ t: "+", l }))];
+  } else {
+    const n = am.length, m = bm.length;
+    const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+    for (let i = n - 1; i >= 0; i--)
+      for (let j = m - 1; j >= 0; j--)
+        dp[i][j] = am[i] === bm[j] ? dp[i + 1][j + 1] + 1
+                                   : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (am[i] === bm[j]) { ops.push({ t: " ", l: am[i] }); i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) ops.push({ t: "-", l: am[i++] });
+      else ops.push({ t: "+", l: bm[j++] });
+    }
+    while (i < n) ops.push({ t: "-", l: am[i++] });
+    while (j < m) ops.push({ t: "+", l: bm[j++] });
   }
-  const m = $("main"); m.classList.remove("flash"); void m.offsetWidth; m.classList.add("flash");
+  return {
+    ops,
+    preCtx: a.slice(Math.max(0, s - 2), s),      // 2 lines of leading context
+    postCtx: e ? a.slice(a.length - e, a.length - e + 2) : [],
+    adds: ops.filter(o => o.t === "+").length,
+    dels: ops.filter(o => o.t === "-").length
+  };
 }
-function diffAdded(oldText, newText) {
-  const count = new Map();
-  for (const l of oldText.split("\n")) count.set(l, (count.get(l) || 0) + 1);
-  const added = [];
-  for (const l of newText.split("\n")) {
-    const c = count.get(l) || 0;
-    if (c > 0) count.set(l, c - 1);
-    else if (l.trim()) added.push(l);
-  }
-  return added;
+function renderDiffHtml(diff) {
+  const seq = [...diff.preCtx.map(l => ({ t: " ", l })), ...diff.ops,
+               ...diff.postCtx.map(l => ({ t: " ", l }))];
+  const out = []; let run = [];
+  const flushRun = () => {
+    if (run.length > 6) {
+      out.push(...run.slice(0, 2),
+        { t: "@", l: "⋯ " + (run.length - 4) + " unchanged lines ⋯" },
+        ...run.slice(-2));
+    } else out.push(...run);
+    run = [];
+  };
+  for (const o of seq) { if (o.t === " ") run.push(o); else { flushRun(); out.push(o); } }
+  flushRun();
+  const shown = out.slice(0, 300);
+  let html = shown.map(o => {
+    const cls = o.t === "+" ? "add" : o.t === "-" ? "del" : o.t === "@" ? "hunk" : "ctx";
+    const pre = o.t === "+" ? "+ " : o.t === "-" ? "− " : o.t === "@" ? "" : "  ";
+    return "<span class='dl " + cls + "'>" + pre + esc(o.l) + "</span>";
+  }).join("");
+  if (out.length > shown.length)
+    html += "<span class='dl hunk'>⋯ +" + (out.length - shown.length) + " more lines ⋯</span>";
+  return html;
+}
+function showDiff(ev) {
+  if (!ev.diff || (!ev.diff.adds && !ev.diff.dels)) return;
+  const box = $("added");
+  box.hidden = false;
+  box.innerHTML = "<button class='dismiss'>×</button><div class='t'></div><div class='diff'></div>";
+  box.querySelector(".t").textContent = ev.type + " · " + ev.path + " · " +
+    (ev.when ? ev.when.toLocaleTimeString() : "") +
+    "  (+" + ev.diff.adds + " −" + ev.diff.dels + ")";
+  box.querySelector(".diff").innerHTML = renderDiffHtml(ev.diff);
+  box.querySelector(".dismiss").onclick = () => box.hidden = true;
 }
 
 /* ---------- frontmatter + markdown rendering ---------- */
@@ -516,10 +588,18 @@ function logEvent(ev) {
   evtCount++;
   const d = document.createElement("div");
   d.className = "evt " + ev.type;
-  d.innerHTML = "<span class='p'></span><br><span class='w'></span>";
+  d.innerHTML = "<span class='p'></span> <span class='cnt'></span><br><span class='w'></span>";
   d.querySelector(".p").textContent = ev.path;
+  if (ev.diff && (ev.diff.adds || ev.diff.dels))
+    d.querySelector(".cnt").innerHTML =
+      (ev.diff.adds ? "<span class='c-add'>+" + ev.diff.adds + "</span> " : "") +
+      (ev.diff.dels ? "<span class='c-del'>−" + ev.diff.dels + "</span>" : "");
   d.querySelector(".w").textContent = ev.type + " · " + new Date().toLocaleTimeString();
-  if (ev.type !== "removed") d.querySelector(".p").onclick = () => openFile(ev.path);
+  d.onclick = async () => {                       // replay this diff any time
+    if (ev.type !== "removed" && files.has(ev.path) && ev.path !== openPath)
+      await openFile(ev.path);
+    showDiff(ev);
+  };
   $("events").prepend(d);
   while ($("events").children.length > 80) $("events").lastChild.remove();
 }
