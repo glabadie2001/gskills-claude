@@ -125,6 +125,19 @@
   #content input[type=checkbox] { accent-color: var(--accent); }
   #content .fresh-ok { color: var(--accent); font-weight: 600; }
   #content .fresh-stale { color: #b8860b; font-weight: 600; }
+  /* graph view */
+  #graphWrap { position: relative; height: 100%; }
+  #graph { display: block; width: 100%; height: 100%; cursor: grab; }
+  #graph.dragging { cursor: grabbing; }
+  #legend { position: absolute; left: 12px; bottom: 12px; display: flex; flex-wrap: wrap;
+    gap: 10px; font-size: 11.5px; color: var(--muted); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; }
+  #legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+    margin-right: 5px; }
+  #graphHint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    font-size: 11.5px; color: var(--muted); pointer-events: none; }
+  main.graphmode { overflow: hidden; padding: 0; }
+  #graphBtn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   /* connect screen */
   #connect { max-width: 560px; margin: 10vh auto; text-align: center; }
   #connect .logo { font-size: 42px; }
@@ -140,6 +153,7 @@
   <h1>⬡ <span>Engram</span> Viewer</h1>
   <div id="status"><div id="dot"></div><span id="statusText">not connected</span></div>
   <div class="grow"></div>
+  <button id="graphBtn" title="Memory graph" hidden>⬡ Graph</button>
   <button id="themeBtn" title="Toggle theme">◐</button>
   <button id="pickBtn">Choose folder…</button>
 </header>
@@ -166,6 +180,11 @@
       <div id="chips"></div>
       <div id="added" hidden></div>
       <div id="content"></div>
+    </div>
+    <div id="graphWrap" hidden>
+      <canvas id="graph"></canvas>
+      <div id="graphHint">drag nodes · drag background to pan · scroll to zoom · click to open</div>
+      <div id="legend"></div>
     </div>
   </main>
   <aside id="feed" hidden>
@@ -209,8 +228,10 @@ const $ = id => document.getElementById(id);
 function applyTheme(t) { document.documentElement.dataset.theme = t; localStorage.eng_theme = t; }
 applyTheme(localStorage.eng_theme ||
   (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
-$("themeBtn").onclick = () =>
+$("themeBtn").onclick = () => {
   applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  if (!$("graphWrap").hidden) renderLegend();
+};
 
 /* ---------- connect flow ---------- */
 async function pick() {
@@ -236,7 +257,7 @@ async function connect(picked) {
     "\" (looked for MEMORY.md, .claude/memory, memory)."); return; }
   memDir = m; rootName = picked.name;
   $("connect").hidden = true; $("doc").hidden = false;
-  $("nav").hidden = false; $("feed").hidden = false;
+  $("nav").hidden = false; $("feed").hidden = false; $("graphBtn").hidden = false;
   $("statusText").textContent = rootName + " · live"; $("dot").className = "live";
   files = new Map();
   await poll(true);
@@ -304,6 +325,7 @@ async function poll(first) {
     else { after = (await readFile(ev.path)) || ""; contentCache.set(ev.path, after); }
     ev.diff = lineDiff(before, after);
     ev.when = new Date();
+    gDirty = true;                       // links may have changed: rebuild graph
     logEvent(ev);
     if (ev.path === openPath) {
       if (ev.type === "removed") $("content").innerHTML = "<div class='empty'>This file was deleted.</div>";
@@ -386,6 +408,7 @@ async function readFile(p) {
 }
 async function openFile(p) {
   const text = await readFile(p); if (text === null) return;
+  setMode("doc");
   openPath = p; openText = text;
   contentCache.set(p, text);
   $("added").hidden = true;
@@ -580,6 +603,198 @@ function resolveWiki(w) {
   for (const p of files.keys()) if (p.split("/").pop() === w + ".md") return p;
   return null;
 }
+
+/* ---------- memory graph (Obsidian-style, canvas force layout) ---------- */
+const LAYER_COLORS = {
+  light: { index: "#2f6f4f", atlas: "#4a7fbf", journal: "#c9862d", archive: "#b0ab9c",
+           decisions: "#9b6bbf", ledger: "#bf6b6b" },
+  dark:  { index: "#6fbf95", atlas: "#7aa7d9", journal: "#d9a659", archive: "#6f6f66",
+           decisions: "#b58fd9", ledger: "#d98a8a" }
+};
+const LAYER_LABELS = { index: "Index", atlas: "Atlas", journal: "Journal",
+  archive: "Archive", decisions: "Decisions", ledger: "Tasks & gotchas" };
+function layerOf(p) {
+  if (p === "MEMORY.md") return "index";
+  if (p.startsWith("journal/archive/")) return "archive";
+  if (p.startsWith("journal/")) return "journal";
+  if (p.startsWith("atlas/")) return "atlas";
+  if (p.startsWith("decisions/")) return "decisions";
+  return "ledger";
+}
+let gNodes = new Map(), gEdges = [], gAlpha = 0, gDirty = true, gRAF = null;
+const gView = { x: 0, y: 0, scale: 1 };
+let gHover = null, gDrag = null, gPan = null, gMoved = 0;
+
+function buildGraph() {
+  const old = gNodes; gNodes = new Map(); gEdges = [];
+  const paths = [...files.keys()].filter(p => !p.split("/").pop().startsWith("_"));
+  paths.forEach((p, i) => {
+    const ang = (i / Math.max(paths.length, 1)) * Math.PI * 2;
+    gNodes.set(p, old.get(p) || { path: p, layer: layerOf(p),
+      label: p.split("/").pop().replace(/\.md$/, ""),
+      x: Math.cos(ang) * 170 + (Math.random() - .5) * 50,
+      y: Math.sin(ang) * 170 + (Math.random() - .5) * 50, vx: 0, vy: 0, deg: 0 });
+    gNodes.get(p).deg = 0;
+  });
+  const seen = new Set();
+  for (const p of paths) {
+    for (const m of (contentCache.get(p) || "").matchAll(/\[\[([^\]]+)\]\]/g)) {
+      const t = resolveWiki(m[1]);
+      if (!t || t === p || !gNodes.has(t)) continue;
+      const key = p < t ? p + "|" + t : t + "|" + p;
+      if (!seen.has(key)) { seen.add(key); gEdges.push([gNodes.get(p), gNodes.get(t)]); }
+    }
+  }
+  for (const [a, b] of gEdges) { a.deg++; b.deg++; }
+  gAlpha = Math.max(gAlpha, 0.9); gDirty = false;
+}
+function tickGraph() {
+  if (gAlpha < 0.015) return;
+  const nodes = [...gNodes.values()];
+  for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+    const a = nodes[i], b = nodes[j];
+    let dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy;
+    if (d2 < 1) { dx = Math.random() - .5; dy = Math.random() - .5; d2 = 1; }
+    const d = Math.sqrt(d2), f = 1600 / d2 * gAlpha;
+    dx /= d; dy /= d;
+    a.vx -= dx * f; a.vy -= dy * f; b.vx += dx * f; b.vy += dy * f;
+  }
+  for (const [a, b] of gEdges) {
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const f = (d - 90) * 0.04 * gAlpha;
+    a.vx += dx / d * f; a.vy += dy / d * f;
+    b.vx -= dx / d * f; b.vy -= dy / d * f;
+  }
+  for (const n of nodes) {
+    n.vx -= n.x * 0.012 * gAlpha; n.vy -= n.y * 0.012 * gAlpha;
+    if (gDrag !== n) { n.x += n.vx; n.y += n.vy; }
+    n.vx *= 0.85; n.vy *= 0.85;
+  }
+  gAlpha *= 0.985;
+}
+function nodeRadius(n) { return 4 + Math.sqrt(n.deg) * 2.2; }
+function drawGraph() {
+  const cv = $("graph"), ctx = cv.getContext("2d");
+  const w = cv.clientWidth, h = cv.clientHeight, dpr = devicePixelRatio || 1;
+  if (cv.width !== w * dpr || cv.height !== h * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const theme = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  const pal = LAYER_COLORS[theme];
+  const css = getComputedStyle(document.documentElement);
+  const rScale = Math.min(gView.scale, 1.5);
+  const X = n => (n.x + gView.x) * gView.scale + w / 2;
+  const Y = n => (n.y + gView.y) * gView.scale + h / 2;
+  const hot = new Set();
+  if (gHover) { hot.add(gHover);
+    for (const [a, b] of gEdges) { if (a === gHover) hot.add(b); if (b === gHover) hot.add(a); } }
+  for (const [a, b] of gEdges) {
+    const on = gHover && (a === gHover || b === gHover);
+    ctx.strokeStyle = on ? pal[gHover.layer] : css.getPropertyValue("--muted");
+    ctx.globalAlpha = gHover ? (on ? 0.9 : 0.08) : 0.3;
+    ctx.lineWidth = on ? 1.6 : 1;
+    ctx.beginPath(); ctx.moveTo(X(a), Y(a)); ctx.lineTo(X(b), Y(b)); ctx.stroke();
+  }
+  const now = Date.now();
+  for (const n of gNodes.values()) {
+    const r = nodeRadius(n) * rScale, x = X(n), y = Y(n);
+    const dim = gHover && !hot.has(n);
+    ctx.globalAlpha = dim ? 0.22 : 1;
+    const info = files.get(n.path);
+    if (info && info.changedAt && now - info.changedAt < 6000) {   // live-change pulse
+      const t = ((now - info.changedAt) % 1200) / 1200;
+      ctx.strokeStyle = pal[n.layer]; ctx.lineWidth = 2;
+      ctx.globalAlpha = (dim ? 0.22 : 1) * (1 - t);
+      ctx.beginPath(); ctx.arc(x, y, r + 3 + t * 12, 0, 7); ctx.stroke();
+      ctx.globalAlpha = dim ? 0.22 : 1;
+    }
+    ctx.fillStyle = pal[n.layer];
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    if (gView.scale > 0.55 || hot.has(n) || nodeRadius(n) > 9) {
+      ctx.fillStyle = css.getPropertyValue("--text");
+      ctx.globalAlpha = dim ? 0.15 : (n === gHover ? 1 : 0.72);
+      ctx.font = (n === gHover ? "600 " : "") + "11px ui-sans-serif, system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(n.label, x, y + r + 12);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+function graphLoop() {
+  if ($("graphWrap").hidden) { gRAF = null; return; }
+  if (gDirty) buildGraph();
+  tickGraph(); drawGraph();
+  gRAF = requestAnimationFrame(graphLoop);
+}
+function nodeAt(mx, my) {
+  const cv = $("graph"), w = cv.clientWidth, h = cv.clientHeight;
+  let best = null, bd = Infinity;
+  for (const n of gNodes.values()) {
+    const x = (n.x + gView.x) * gView.scale + w / 2;
+    const y = (n.y + gView.y) * gView.scale + h / 2;
+    const r = Math.max(9, nodeRadius(n) * Math.min(gView.scale, 1.5) + 3);
+    const d = (mx - x) ** 2 + (my - y) ** 2;
+    if (d < r * r && d < bd) { best = n; bd = d; }
+  }
+  return best;
+}
+function graphMouse(e) {
+  const rect = $("graph").getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+(function wireGraph() {
+  const cv = $("graph");
+  cv.addEventListener("pointerdown", e => {
+    const m = graphMouse(e); gMoved = 0;
+    const n = nodeAt(m.x, m.y);
+    if (n) { gDrag = n; } else gPan = { ...m, vx: gView.x, vy: gView.y };
+    cv.classList.add("dragging"); cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener("pointermove", e => {
+    const m = graphMouse(e);
+    if (gDrag) {
+      gMoved += Math.abs(e.movementX) + Math.abs(e.movementY);
+      gDrag.x += e.movementX / gView.scale; gDrag.y += e.movementY / gView.scale;
+      gDrag.vx = 0; gDrag.vy = 0; gAlpha = Math.max(gAlpha, 0.25);
+    } else if (gPan) {
+      gMoved += Math.abs(e.movementX) + Math.abs(e.movementY);
+      gView.x = gPan.vx + (m.x - gPan.x) / gView.scale;
+      gView.y = gPan.vy + (m.y - gPan.y) / gView.scale;
+    } else {
+      gHover = nodeAt(m.x, m.y);
+      cv.style.cursor = gHover ? "pointer" : "grab";
+    }
+  });
+  cv.addEventListener("pointerup", e => {
+    if (gDrag && gMoved < 5) { const p = gDrag.path; gDrag = null; openFile(p); }
+    gDrag = null; gPan = null; cv.classList.remove("dragging");
+  });
+  cv.addEventListener("pointerleave", () => { gHover = null; });
+  cv.addEventListener("wheel", e => {
+    e.preventDefault();
+    const m = graphMouse(e), w = cv.clientWidth, h = cv.clientHeight;
+    const s0 = gView.scale;
+    const s1 = Math.min(4, Math.max(0.2, s0 * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+    // keep the world point under the cursor fixed while zooming
+    gView.x = (m.x - w / 2) / s1 - ((m.x - w / 2) / s0 - gView.x);
+    gView.y = (m.y - h / 2) / s1 - ((m.y - h / 2) / s0 - gView.y);
+    gView.scale = s1;
+  }, { passive: false });
+})();
+function renderLegend() {
+  const theme = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  $("legend").innerHTML = Object.keys(LAYER_LABELS).map(k =>
+    "<span><i style='background:" + LAYER_COLORS[theme][k] + "'></i>" +
+    LAYER_LABELS[k] + "</span>").join("");
+}
+function setMode(mode) {
+  const g = mode === "graph";
+  $("doc").hidden = g; $("graphWrap").hidden = !g;
+  $("main").classList.toggle("graphmode", g);
+  $("graphBtn").classList.toggle("on", g);
+  if (g) { gDirty = true; renderLegend(); if (!gRAF) graphLoop(); }
+}
+$("graphBtn").onclick = () => setMode($("graphWrap").hidden ? "graph" : "doc");
 
 /* ---------- activity feed ---------- */
 let evtCount = 0;

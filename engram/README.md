@@ -49,6 +49,12 @@ history before that, memory is git-tracked: `git log -p -- .claude/memory`. No s
 install; the folder permission is remembered between sessions (one-click reconnect).
 Read-only by design — it never writes to memory.
 
+The **⬡ Graph** button switches to an Obsidian-style memory graph: every memory file is a
+node (colored by layer, sized by connectivity), every `[[wikilink]]` an edge — built from
+the same content cache the diffs use, so it needs no extra tooling. Drag nodes, pan, zoom,
+hover to highlight a node's neighborhood, click to open the file; files Claude just wrote
+pulse in place, so in graph view you can watch activity ripple through the memory.
+
 ## Install
 
 ```powershell
