@@ -141,9 +141,24 @@ back. `gotchas.md`: dated bullets with file refs.
   only allow/block, not add context. The real defense against compaction loss is protocol
   rule 2 — capture at milestones, so there's nothing left to lose when compaction hits.)
 
+- **Status line** — the one persistent UI surface Claude Code exposes to scripts. Renders
+  a live memory-health readout at the bottom of the terminal: open task counts, stale
+  atlas card count, and days since the last journal entry (`🧠 2 now · 1 next │ atlas 2/9
+  stale │ ✎ 4d`). This is passive pressure against the write-nothing and stale-confident
+  failure modes: drift becomes visible the moment it happens, not at the next `/mem-sync`.
+  The atlas pass costs ~2 git calls per card, so counts are cached in the OS temp dir and
+  recomputed only when HEAD moves, the card set changes, or a card file is edited —
+  commit-based staleness cannot change otherwise. Unlike the hooks, the status line is
+  registered in the *user's* `~/.claude/settings.json`, not the project's: `statusLine`
+  is a per-user singleton, and a project-level entry would stomp every teammate's
+  personal status line. The script self-locates the project from the JSON payload Claude
+  Code pipes to it, so one user-level registration serves every Engram-fied repo and
+  renders blank in projects without memory.
+
 One cross-platform hook entry is registered in `.claude/settings.json` (bash flavor — Git
 Bash on Windows, native bash elsewhere — so the committed settings work for a whole team);
-`engram-brief.ps1` ships as a documented fallback for PowerShell-only Windows setups.
+`engram-brief.ps1` and `engram-statusline.ps1` ship as documented fallbacks for
+PowerShell-only Windows setups.
 
 ## Field validation
 

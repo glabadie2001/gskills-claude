@@ -114,7 +114,7 @@ if [ -d "$hooks_source" ] && [ -n "$(ls -A "$hooks_source" 2>/dev/null)" ]; then
     [ -d "$hooks_target" ] && note=" (existing files overwritten)"
     mkdir -p "$hooks_target"
     cp -R "$hooks_source/." "$hooks_target/"
-    chmod +x "$hooks_target/engram-brief.sh" 2>/dev/null || true
+    chmod +x "$hooks_target/engram-brief.sh" "$hooks_target/engram-statusline.sh" 2>/dev/null || true
     echo "  - hooks: copied to .claude/hooks/$note"
 else
     echo "WARNING: template/hooks is missing or empty - skipping hooks." >&2
@@ -325,13 +325,62 @@ else
     echo "  - .gitattributes: journal merge rules already present - unchanged."
 fi
 
+# ---------- 7. status line (user-level, never clobbers) ----------
+# The status line is a per-user singleton: a project-level statusLine would
+# override every teammate's personal one, so it is registered in the USER's
+# ~/.claude/settings.json instead. The script locates the project from the
+# JSON payload Claude Code pipes to it, so this ONE registration covers every
+# Engram-fied repo on the machine and renders blank everywhere else.
+user_claude="$HOME/.claude"
+user_settings="$user_claude/settings.json"
+sl_command="bash ~/.claude/engram-statusline.sh"
+sl_manual="\"statusLine\": { \"type\": \"command\", \"command\": \"$sl_command\" }"
+if [ -f "$hooks_source/engram-statusline.sh" ]; then
+    mkdir -p "$user_claude"
+    cp "$hooks_source/engram-statusline.sh" "$user_claude/engram-statusline.sh" 2>/dev/null \
+        && chmod +x "$user_claude/engram-statusline.sh" 2>/dev/null
+    cp "$hooks_source/engram-statusline.ps1" "$user_claude/engram-statusline.ps1" 2>/dev/null
+    if [ -f "$user_settings" ] && grep -q 'engram-statusline' "$user_settings" 2>/dev/null; then
+        echo "  - status line: already registered in ~/.claude/settings.json (script refreshed)."
+    elif [ -f "$user_settings" ] && grep -q '"statusLine"' "$user_settings" 2>/dev/null; then
+        echo "  - status line: ~/.claude/settings.json already defines a statusLine - left untouched."
+        echo "    To switch to Engram's, set:  $sl_manual"
+    elif [ ! -f "$user_settings" ]; then
+        cat > "$user_settings" <<EOF
+{
+  "statusLine": {
+    "type": "command",
+    "command": "$sl_command"
+  }
+}
+EOF
+        echo "  - status line: wrote fresh ~/.claude/settings.json with the Engram status line."
+    elif command -v jq >/dev/null 2>&1; then
+        tmp=$(mktemp)
+        if jq --arg cmd "$sl_command" \
+            '.statusLine = { "type": "command", "command": $cmd }' \
+            "$user_settings" > "$tmp" 2>/dev/null; then
+            mv "$tmp" "$user_settings"
+            echo "  - status line: registered in ~/.claude/settings.json."
+        else
+            rm -f "$tmp"
+            echo "WARNING: jq failed to parse ~/.claude/settings.json - NOT modifying it." >&2
+            echo "  To show the Engram status line, add manually:  $sl_manual"
+        fi
+    else
+        echo "MANUAL STEP (optional): jq is not installed, so ~/.claude/settings.json was NOT"
+        echo "modified. To show the Engram status line, add:  $sl_manual"
+    fi
+fi
+
 # ---------- summary ----------
 echo ""
 echo "Engram installed into $target"
 echo "Next steps:"
 echo "  1. Open Claude Code in the target and run /mem-init to bootstrap memory from the codebase."
 echo "  2. New sessions will start with an Engram brief (SessionStart hook)."
+echo "  3. The status line at the bottom of Claude Code shows tasks / atlas freshness / journal age."
 if [ "$refresh" = "1" ]; then
-    echo "  3. Tooling refreshed on an existing install: run /mem-sync in the target - it walks any pending memory-format migrations (see .claude/skills/mem-sync/MIGRATIONS.md)."
+    echo "  4. Tooling refreshed on an existing install: run /mem-sync in the target - it walks any pending memory-format migrations (see .claude/skills/mem-sync/MIGRATIONS.md)."
 fi
 exit 0

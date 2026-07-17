@@ -33,6 +33,7 @@ Plus five skills and a session-start hook:
 | `/mem-save` | File one fact into its single home |
 | `/mem-sync` | Repair pass: re-verify stale cards against the git diff, compact old journals, prune tasks, rebuild the index |
 | SessionStart hook | Injects a brief every session: open tasks, recent journal entries, and which atlas cards are stale (computed live from git). After a context compaction it instead reminds the session to journal anything unlogged. |
+| Status line | A live memory-health readout at the bottom of Claude Code — `🧠 2 now · 1 next │ atlas 8✓ │ ✎ today` — showing open tasks, stale atlas cards (cached; recomputed when HEAD moves or a card is edited), and days since the last journal entry. Registered once in your user settings; it self-locates the project, so it works in every Engram-fied repo and stays blank elsewhere. |
 
 ## Watch the memory live
 
@@ -69,10 +70,15 @@ pulse in place, so in graph view you can watch activity ripple through the memor
 Then open Claude Code in the target repo and run `/mem-init` once. That's the whole setup.
 
 The installer copies the memory template into `.claude/memory/`, the skills into
-`.claude/skills/`, the hook into `.claude/hooks/`, merges the hook registration into
+`.claude/skills/`, the hooks into `.claude/hooks/`, merges the hook registration into
 `.claude/settings.json` (preserving whatever is already there), and appends an import
-block to `CLAUDE.md`. It is idempotent and will **never overwrite an existing memory**
-(`-RefreshTooling` updates skills/hooks only).
+block to `CLAUDE.md`. It also registers the status line in your **user**
+`~/.claude/settings.json` — user-level because `statusLine` is a per-user singleton
+(a project-level entry would override teammates' personal status lines), and because
+one registration then covers every Engram-fied repo on the machine. If you already
+have a status line configured, it is left untouched and the installer prints the
+one-line swap instead. The installer is idempotent and will **never overwrite an
+existing memory** (`-RefreshTooling` updates skills/hooks/status line only).
 
 **Upgrading:** Engram memory is versioned (`.claude/memory/VERSION`; a missing file
 means v1). After refreshing tooling on an existing install, run `/mem-sync` — it
@@ -112,6 +118,9 @@ small by construction. See [DESIGN.md](DESIGN.md) for the full rationale.
 
 - Session starts → you (and Claude) see: *"3 open tasks · yesterday: fixed the token
   refresh race, dead end: debouncing at the caller · STALE: auth card is 4 commits behind."*
+- All session long → the status line at the bottom reads `🧠 3 now · 1 next │ atlas 2/9
+  stale │ ✎ today`: yellow creep in the atlas segment means memory is drifting from the
+  code; a yellow `✎ 4d` means nobody has journaled in four days.
 - You ask "how does billing retry work?" → Claude answers from `[[billing]]` (fresh,
   verified at `e9f21c3`) without opening a single source file — or verifies exactly the
   two claims that a stale card can't guarantee.

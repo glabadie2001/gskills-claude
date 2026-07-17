@@ -264,13 +264,70 @@ try {
     Write-Warning (".gitattributes update failed: " + $_.Exception.Message)
 }
 
+# ---------- 7. status line (user-level, never clobbers) ----------
+# The status line is a per-user singleton: a project-level statusLine would
+# override every teammate's personal one, so it is registered in the USER's
+# ~\.claude\settings.json instead. The script locates the project from the
+# JSON payload Claude Code pipes to it, so this ONE registration covers every
+# Engram-fied repo on the machine and renders blank everywhere else.
+try {
+    $userClaude   = Join-Path $env:USERPROFILE '.claude'
+    $userSettings = Join-Path $userClaude 'settings.json'
+    $slSource     = Join-Path $hooksSource 'engram-statusline.sh'
+    $slCommand    = 'bash ~/.claude/engram-statusline.sh'
+    $slManual     = '"statusLine": { "type": "command", "command": "' + $slCommand + '" }'
+    if (Test-Path -LiteralPath $slSource) {
+        if (-not (Test-Path -LiteralPath $userClaude)) {
+            New-Item -ItemType Directory -Path $userClaude -Force | Out-Null
+        }
+        Copy-Item -LiteralPath $slSource -Destination (Join-Path $userClaude 'engram-statusline.sh') -Force
+        $slPs1 = Join-Path $hooksSource 'engram-statusline.ps1'
+        if (Test-Path -LiteralPath $slPs1) {
+            Copy-Item -LiteralPath $slPs1 -Destination (Join-Path $userClaude 'engram-statusline.ps1') -Force
+        }
+        if (Test-Path -LiteralPath $userSettings) {
+            $rawUser = Get-Content -LiteralPath $userSettings -Raw
+            $userObj = $null
+            try { $userObj = $rawUser | ConvertFrom-Json } catch { $userObj = $null }
+            if ($rawUser.IndexOf('engram-statusline') -ge 0) {
+                Write-Step "status line: already registered in ~\.claude\settings.json (script refreshed)."
+            } elseif ($null -eq $userObj) {
+                Write-Warning "Could not parse ~\.claude\settings.json - NOT modifying it. To show the Engram status line, add manually: $slManual"
+            } elseif ($userObj.PSObject.Properties['statusLine'] -and $null -ne $userObj.statusLine) {
+                Write-Step "status line: ~\.claude\settings.json already defines a statusLine - left untouched."
+                Write-Host "    To switch to Engram's, set:  $slManual"
+            } else {
+                $slObj = New-Object PSObject
+                $slObj | Add-Member -MemberType NoteProperty -Name 'type' -Value 'command'
+                $slObj | Add-Member -MemberType NoteProperty -Name 'command' -Value $slCommand
+                $userObj | Add-Member -MemberType NoteProperty -Name 'statusLine' -Value $slObj -Force
+                $json = $userObj | ConvertTo-Json -Depth 50
+                [System.IO.File]::WriteAllText($userSettings, $json, $utf8NoBom)
+                Write-Step "status line: registered in ~\.claude\settings.json."
+            }
+        } else {
+            $settingsObj = New-Object PSObject
+            $slObj = New-Object PSObject
+            $slObj | Add-Member -MemberType NoteProperty -Name 'type' -Value 'command'
+            $slObj | Add-Member -MemberType NoteProperty -Name 'command' -Value $slCommand
+            $settingsObj | Add-Member -MemberType NoteProperty -Name 'statusLine' -Value $slObj
+            $json = $settingsObj | ConvertTo-Json -Depth 50
+            [System.IO.File]::WriteAllText($userSettings, $json, $utf8NoBom)
+            Write-Step "status line: wrote fresh ~\.claude\settings.json with the Engram status line."
+        }
+    }
+} catch {
+    Write-Warning ("status line setup failed: " + $_.Exception.Message)
+}
+
 # ---------- summary ----------
 Write-Host ""
 Write-Host "Engram installed into $Target"
 Write-Host "Next steps:"
 Write-Host "  1. Open Claude Code in the target and run /mem-init to bootstrap memory from the codebase."
 Write-Host "  2. New sessions will start with an Engram brief (SessionStart hook)."
+Write-Host "  3. The status line at the bottom of Claude Code shows tasks / atlas freshness / journal age."
 if ($RefreshTooling) {
-    Write-Host "  3. Tooling refreshed on an existing install: run /mem-sync in the target - it walks any pending memory-format migrations (see .claude\skills\mem-sync\MIGRATIONS.md)."
+    Write-Host "  4. Tooling refreshed on an existing install: run /mem-sync in the target - it walks any pending memory-format migrations (see .claude\skills\mem-sync\MIGRATIONS.md)."
 }
 exit 0
