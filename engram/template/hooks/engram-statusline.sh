@@ -8,6 +8,8 @@
 #   🧠 2 now · 1 next │ atlas 8✓ │ ✎ today          (all fresh, journaled today)
 #   🧠 no tasks │ atlas 2/9 stale │ ✎ 4d            (drifting -- /mem-sync time)
 #   🧠 memory empty · run /mem-init                  (installed but not bootstrapped)
+#   🧠 app: 2 now · 1 next │ ...                     (launched in a parent dir; Engram
+#                                                     found one level down, in app/)
 #   (nothing)                                        (project has no Engram)
 #
 # Registered ONCE in user settings (~/.claude/settings.json), not per-project:
@@ -28,28 +30,59 @@
 
 main() {
     # ---------- read stdin JSON, resolve project root ----------
-    local raw flat root
+    local raw flat root cwd_val
     raw=$(cat 2>/dev/null) || raw=""
     flat=$(printf '%s' "$raw" | tr -d '\n')
     root=$(printf '%s' "$flat" \
         | sed -n 's/.*"project_dir"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-    [ -n "$root" ] || root=$(printf '%s' "$flat" \
+    cwd_val=$(printf '%s' "$flat" \
         | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    [ -n "$root" ] || root="$cwd_val"
     [ -n "$root" ] || root="${CLAUDE_PROJECT_DIR:-}"
     [ -n "$root" ] || root="$PWD"
     # JSON escapes backslashes; collapse '\\' to '\', then '\' to '/' (Windows).
     root=${root//\\\\/\\}
     root=${root//\\/\/}
+    cwd_val=${cwd_val//\\\\/\\}
+    cwd_val=${cwd_val//\\/\/}
 
+    # ---------- locate the Engram memory ----------
+    # Direct: <root>/.claude/memory. Nested: Claude launched in a PARENT of the
+    # Engram-fied repo (e.g. server/ holding server/app/.claude) -> probe one
+    # level down and label the segment with the subdir name (first match in glob
+    # order wins; '+N' marks additional installs). Last resort: the session cwd,
+    # which covers cd-ing into an Engram-fied subdir mid-session. From here on
+    # $root is the ENGRAM root: git, card paths, and the cache key all resolve
+    # against it, exactly as if the session ran there.
+    local sub_label=""
+    if [ ! -f "$root/.claude/memory/MEMORY.md" ]; then
+        local m hits=0 first=""
+        for m in "$root"/*/.claude/memory/MEMORY.md; do
+            [ -f "$m" ] || continue
+            hits=$((hits + 1))
+            [ -n "$first" ] || first="$m"
+        done
+        if [ -n "$first" ]; then
+            root=${first%/.claude/memory/MEMORY.md}
+            sub_label=$(basename "$root")
+            [ "$hits" -gt 1 ] && sub_label="$sub_label +$((hits - 1))"
+        elif [ -n "$cwd_val" ] && [ "$cwd_val" != "$root" ] \
+            && [ -f "$cwd_val/.claude/memory/MEMORY.md" ]; then
+            root="$cwd_val"
+        else
+            exit 0    # no Engram here -> blank status line
+        fi
+    fi
     local mem="$root/.claude/memory"
-    [ -f "$mem/MEMORY.md" ] || exit 0    # no Engram here -> blank status line
 
     local ESC=$'\033'
     local GRN="${ESC}[32m" YEL="${ESC}[33m" DIM="${ESC}[90m" RST="${ESC}[0m"
+    local prefix="🧠"
+    [ -n "$sub_label" ] && prefix="🧠 ${DIM}${sub_label}:${RST}"
 
     # ---------- empty memory: single nudge ----------
     if grep -q 'STATUS: EMPTY' "$mem/MEMORY.md" 2>/dev/null; then
-        printf '%s\n' "🧠 ${YEL}memory empty · run /mem-init${RST}"
+        printf '%s\n' "$prefix ${YEL}memory empty · run /mem-init${RST}"
         exit 0
     fi
 
@@ -182,7 +215,7 @@ EOF_CARDS
     fi
 
     # ---------- assemble ----------
-    local out="🧠 ${tasks_seg}"
+    local out="$prefix ${tasks_seg}"
     [ -n "$atlas_seg" ] && out="$out ${DIM}│${RST} $atlas_seg"
     [ -n "$jseg" ] && out="$out ${DIM}│${RST} $jseg"
     printf '%s\n' "$out"

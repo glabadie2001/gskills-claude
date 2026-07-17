@@ -153,7 +153,10 @@ back. `gotchas.md`: dated bullets with file refs.
   is a per-user singleton, and a project-level entry would stomp every teammate's
   personal status line. The script self-locates the project from the JSON payload Claude
   Code pipes to it, so one user-level registration serves every Engram-fied repo and
-  renders blank in projects without memory.
+  renders blank in projects without memory. Nested layouts work too: when Claude is
+  launched in a parent folder of the Engram-fied repo, the script probes one directory
+  level down (then the session cwd) and prefixes the readout with the subdir name —
+  `🧠 app: 2 now · …` — resolving git and card paths against the nested root.
 
 One cross-platform hook entry is registered in `.claude/settings.json` (bash flavor — Git
 Bash on Windows, native bash elsewhere — so the committed settings work for a whole team);

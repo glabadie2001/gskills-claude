@@ -33,7 +33,7 @@ Plus five skills and a session-start hook:
 | `/mem-save` | File one fact into its single home |
 | `/mem-sync` | Repair pass: re-verify stale cards against the git diff, compact old journals, prune tasks, rebuild the index |
 | SessionStart hook | Injects a brief every session: open tasks, recent journal entries, and which atlas cards are stale (computed live from git). After a context compaction it instead reminds the session to journal anything unlogged. |
-| Status line | A live memory-health readout at the bottom of Claude Code — `🧠 2 now · 1 next │ atlas 8✓ │ ✎ today` — showing open tasks, stale atlas cards (cached; recomputed when HEAD moves or a card is edited), and days since the last journal entry. Registered once in your user settings; it self-locates the project, so it works in every Engram-fied repo and stays blank elsewhere. |
+| Status line | A live memory-health readout at the bottom of Claude Code — `🧠 2 now · 1 next │ atlas 8✓ │ ✎ today` — showing open tasks, stale atlas cards (cached; recomputed when HEAD moves or a card is edited), and days since the last journal entry. Registered once in your user settings; it self-locates the project — including an Engram-fied repo one level below where Claude was launched, shown with a `name:` prefix — so it works everywhere and stays blank in projects without memory. |
 
 ## Watch the memory live
 

@@ -27,6 +27,7 @@ try {
 
     # ---------- read stdin JSON, resolve project root ----------
     $root = ''
+    $cwdVal = ''
     try {
         $raw = [Console]::In.ReadToEnd()
         if ($raw -and $raw.Trim().Length -gt 0) {
@@ -34,17 +35,42 @@ try {
             if ($payload.workspace -and $payload.workspace.PSObject.Properties['project_dir']) {
                 $root = [string]$payload.workspace.project_dir
             }
-            if ((-not $root) -and $payload.PSObject.Properties['cwd']) {
-                $root = [string]$payload.cwd
-            }
+            if ($payload.PSObject.Properties['cwd']) { $cwdVal = [string]$payload.cwd }
+            if (-not $root) { $root = $cwdVal }
         }
     } catch { }
     if (-not $root) { $root = $env:CLAUDE_PROJECT_DIR }
     if (-not $root) { $root = (Get-Location).Path }
 
+    # ---------- locate the Engram memory ----------
+    # Direct: <root>\.claude\memory. Nested: Claude launched in a PARENT of the
+    # Engram-fied repo (e.g. server\ holding server\app\.claude) -> probe one
+    # level down and label the segment with the subdir name (first match in name
+    # order wins; '+N' marks additional installs). Last resort: the session cwd,
+    # which covers cd-ing into an Engram-fied subdir mid-session. From here on
+    # $root is the ENGRAM root: git, card paths, and the cache key all resolve
+    # against it, exactly as if the session ran there.
+    $subLabel = ''
+    if (-not (Test-Path -LiteralPath (Join-Path $root '.claude\memory\MEMORY.md'))) {
+        $nested = @()
+        try {
+            $nested = @(Get-ChildItem -LiteralPath $root -Directory |
+                Sort-Object Name |
+                Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName '.claude\memory\MEMORY.md') })
+        } catch { }
+        if ($nested.Count -gt 0) {
+            $root = $nested[0].FullName
+            $subLabel = $nested[0].Name
+            if ($nested.Count -gt 1) { $subLabel = $subLabel + ' +' + ($nested.Count - 1) }
+        } elseif ($cwdVal -and ($cwdVal -ne $root) -and
+            (Test-Path -LiteralPath (Join-Path $cwdVal '.claude\memory\MEMORY.md'))) {
+            $root = $cwdVal
+        } else {
+            exit 0   # no Engram -> blank
+        }
+    }
     $memDir = Join-Path $root '.claude\memory'
     $memoryMd = Join-Path $memDir 'MEMORY.md'
-    if (-not (Test-Path -LiteralPath $memoryMd)) { exit 0 }   # no Engram -> blank
 
     $esc = [string][char]27
     $GRN = "$esc[32m"; $YEL = "$esc[33m"; $DIM = "$esc[90m"; $RST = "$esc[0m"
@@ -53,12 +79,14 @@ try {
     $DOT = [string][char]0x00B7                  # middle dot
     $PEN = [string][char]0x270E                  # pencil
     $CHK = [string][char]0x2713                  # check mark
+    $prefix = $BRAIN
+    if ($subLabel) { $prefix = $BRAIN + ' ' + $DIM + $subLabel + ':' + $RST }
 
     # ---------- empty memory: single nudge ----------
     $memoryText = ''
     try { $memoryText = [System.IO.File]::ReadAllText($memoryMd) } catch { }
     if ($memoryText.IndexOf('STATUS: EMPTY') -ge 0) {
-        Write-Output ($BRAIN + ' ' + $YEL + 'memory empty ' + $DOT + ' run /mem-init' + $RST)
+        Write-Output ($prefix + ' ' + $YEL + 'memory empty ' + $DOT + ' run /mem-init' + $RST)
         exit 0
     }
 
@@ -189,7 +217,7 @@ try {
     } catch { }
 
     # ---------- assemble ----------
-    $out = $BRAIN + ' ' + $tasksSeg
+    $out = $prefix + ' ' + $tasksSeg
     if ($atlasSeg) { $out = $out + ' ' + $DIM + $BAR + $RST + ' ' + $atlasSeg }
     if ($jSeg) { $out = $out + ' ' + $DIM + $BAR + $RST + ' ' + $jSeg }
     Write-Output $out
