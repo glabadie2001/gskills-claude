@@ -369,4 +369,71 @@ if [ -d "$journal_dir" ]; then
     done < <(ls -1 "$journal_dir"/*.md 2>/dev/null | grep -E '/[0-9]{4}-[0-9]{2}-[0-9]{2}\.md$' | sort)
 fi
 
+# ---------- 8. architecture overview (same frontmatter contract as a card) ----------
+arch_file="$mem_dir/architecture.md"
+if [ -f "$arch_file" ]; then
+    rel=$(rel_path "$arch_file")
+    has_fm=0
+    if head -1 "$arch_file" 2>/dev/null | grep -q '^---[[:space:]]*$'; then has_fm=1; fi
+    fm=""
+    if [ "$has_fm" -eq 1 ]; then
+        fm=$(awk 'NR==1{next} /^---[[:space:]]*$/{exit} {print}' "$arch_file")
+    fi
+    verified=$(printf '%s\n' "$fm" | sed -n 's/^verified:[[:space:]]*//p' | head -1 | awk '{print $1}')
+    paths=$(printf '%s\n' "$fm" | awk '/^paths:[[:space:]]*$/{f=1;next}
+        f && /^[[:space:]]+-[[:space:]]*/{sub(/^[[:space:]]+-[[:space:]]*/,"");
+            gsub(/^["'\'']|["'\'']$/,""); print; next}
+        f{f=0}')
+    patharr=()
+    while IFS= read -r p; do
+        [ -n "$p" ] && patharr[${#patharr[@]}]="$p"
+    done <<EOF
+$paths
+EOF
+
+    # 8a. globs: brace-glob (string) / dead-glob (git)
+    gi=0
+    while [ "$gi" -lt "${#patharr[@]}" ]; do
+        glob="${patharr[$gi]}"; gi=$((gi + 1))
+        case "$glob" in
+            *"{"*)
+                add_finding ERROR brace-glob "$rel" "paths glob uses brace expansion (git matches nothing): $glob"
+                continue
+                ;;
+        esac
+        if [ "$is_git" -eq 1 ]; then
+            ls_out=$(git -C "$root" ls-files -- "$glob" 2>/dev/null)
+            if [ -z "$ls_out" ]; then
+                add_finding ERROR dead-glob "$rel" "paths glob matches no tracked files: $glob"
+            fi
+        fi
+    done
+
+    # 8b. verified / stale (Live diagram only — the Target never goes stale by commit)
+    if [ -z "$verified" ] || printf '%s' "$verified" | grep -qE '^0+$'; then
+        disp="missing"
+        [ -n "$verified" ] && disp="$verified"
+        add_finding WARN unverified "$rel" "Live diagram is unverified (verified: $disp)"
+    elif [ "$is_git" -eq 1 ]; then
+        objt=$(git -C "$root" cat-file -t "$verified" 2>/dev/null)
+        if [ "$objt" != "commit" ]; then
+            add_finding ERROR bad-verified "$rel" "verified '$verified' is not a commit object"
+        elif [ "${#patharr[@]}" -gt 0 ]; then
+            loglines=$(git -C "$root" log --oneline "$verified..HEAD" -- "${patharr[@]}" 2>/dev/null)
+            behind=$(printf '%s' "$loglines" | grep -c '.' 2>/dev/null)
+            [ -n "$behind" ] || behind=0
+            if [ "$behind" -gt 0 ] 2>/dev/null; then
+                if [ "$behind" -eq 1 ]; then unit="commit"; else unit="commits"; fi
+                add_finding WARN stale-arch "$rel" "Live diagram is $behind $unit behind HEAD"
+            fi
+        fi
+    fi
+
+    # 8c. over-budget
+    al=$(count_lines "$arch_file")
+    if [ "$al" -gt 120 ] 2>/dev/null; then
+        add_finding WARN over-budget "$rel" "architecture.md is $al lines (budget 120)"
+    fi
+fi
+
 emit_and_exit

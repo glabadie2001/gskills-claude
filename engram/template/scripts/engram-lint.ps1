@@ -358,6 +358,78 @@ if (Test-Path -LiteralPath $journalDir) {
     }
 }
 
+# ---------- 8. architecture overview (same frontmatter contract as a card) ----------
+$archFile = "$memDir/architecture.md"
+if (Test-Path -LiteralPath $archFile) {
+    $rel = Rel-Path $archFile
+    $aLines = @()
+    try { $aLines = [System.IO.File]::ReadAllLines($archFile) } catch { $aLines = @() }
+
+    # parse frontmatter
+    $fmEnd = -1
+    if ($aLines.Count -ge 1 -and $aLines[0].Trim() -eq '---') {
+        for ($i = 1; $i -lt $aLines.Count; $i++) {
+            if ($aLines[$i].Trim() -eq '---') { $fmEnd = $i; break }
+        }
+    }
+    $verified = ''
+    $archPaths = @()
+    if ($fmEnd -gt 0) {
+        $inPaths = $false
+        for ($i = 1; $i -lt $fmEnd; $i++) {
+            $l = $aLines[$i]
+            if ($inPaths -and $l -match '^\s+-\s*(.+?)\s*$') {
+                $archPaths += $matches[1].Trim('"').Trim("'")
+                continue
+            }
+            $inPaths = $false
+            if ($l -match '^verified:\s*(\S+)')     { $verified = $matches[1]; continue }
+            if ($l -match '^paths:\s*$')            { $inPaths = $true; continue }
+        }
+    }
+
+    # 8a. globs: brace-glob (string) / dead-glob (git)
+    foreach ($glob in $archPaths) {
+        if ($glob.IndexOf('{') -ge 0) {
+            Add-Finding 'ERROR' 'brace-glob' $rel "paths glob uses brace expansion (git matches nothing): $glob"
+            continue
+        }
+        if ($isGit) {
+            $lsOut = @()
+            try { $lsOut = @(git -C $root ls-files -- $glob 2>$null) } catch { $lsOut = @() }
+            $nonEmpty = @($lsOut | Where-Object { $_ -and $_.Trim().Length -gt 0 })
+            if ($nonEmpty.Count -eq 0) {
+                Add-Finding 'ERROR' 'dead-glob' $rel "paths glob matches no tracked files: $glob"
+            }
+        }
+    }
+
+    # 8b. verified / stale (Live diagram only — the Target never goes stale by commit)
+    if ((-not $verified) -or ($verified -match '^0+$')) {
+        $disp = 'missing'
+        if ($verified) { $disp = $verified }
+        Add-Finding 'WARN' 'unverified' $rel "Live diagram is unverified (verified: $disp)"
+    } elseif ($isGit) {
+        $objType = ''
+        try { $objType = (git -C $root cat-file -t $verified 2>$null) } catch { $objType = '' }
+        if ($LASTEXITCODE -ne 0 -or "$objType".Trim() -ne 'commit') {
+            Add-Finding 'ERROR' 'bad-verified' $rel "verified '$verified' is not a commit object"
+        } elseif ($archPaths.Count -gt 0) {
+            $logLines = @()
+            try { $logLines = @(git -C $root log --oneline "$verified..HEAD" -- $archPaths 2>$null) } catch { $logLines = @() }
+            $behind = @($logLines | Where-Object { $_ -and $_.Trim().Length -gt 0 }).Count
+            if ($behind -gt 0) {
+                Add-Finding 'WARN' 'stale-arch' $rel ("Live diagram is " + (Plural-Commits $behind) + " behind HEAD")
+            }
+        }
+    }
+
+    # 8c. over-budget
+    if ($aLines.Count -gt 120) {
+        Add-Finding 'WARN' 'over-budget' $rel ("architecture.md is " + $aLines.Count + " lines (budget 120)")
+    }
+}
+
 # ==========================================================================
 # Output
 # ==========================================================================

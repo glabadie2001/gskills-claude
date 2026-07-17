@@ -17,13 +17,15 @@ An *engram* is the physical trace a memory leaves in a brain. This is that, for 
   MEMORY.md            # always-loaded index (≤120 lines) with the usage protocol
   atlas/<module>.md    # living docs: one card per subsystem, stamped with the git
                        #   SHA it was verified against — staleness is COMPUTED, not guessed
+  architecture.md      # Live system diagram (SHA-stamped, like a card) vs Target
+                       #   (idealized, changed only by decision) + an explicit gap list
   journal/YYYY-MM-DD.md# append-only activity log; dead ends are first-class
   tasks.md             # Now / Next / Later / Done
   decisions/NNN-*.md   # append-only ADRs: why things are the way they are
   gotchas.md           # cross-cutting traps
 ```
 
-Plus five skills and a session-start hook:
+Plus six skills and a session-start hook:
 
 | Piece | Job |
 |---|---|
@@ -32,7 +34,8 @@ Plus five skills and a session-start hook:
 | `/mem-journal` | Log what just happened (including what *failed* and why), reconcile tasks |
 | `/mem-save` | File one fact into its single home |
 | `/mem-sync` | Repair pass: re-verify stale cards against the git diff, compact old journals, prune tasks, rebuild the index |
-| SessionStart hook | Injects a brief every session: open tasks, recent journal entries, and which atlas cards are stale (computed live from git). After a context compaction it instead reminds the session to journal anything unlogged. |
+| `/mem-arch` | Architecture overview: keep the **Live** diagram verified against the code, set the **Target** (idealized) one, and keep the gap between them explicit |
+| SessionStart hook | Injects a brief every session: open tasks, recent journal entries, which atlas cards are stale, and whether the architecture's Live diagram has drifted (all computed live from git). After a context compaction it instead reminds the session to journal anything unlogged. |
 | Status line | A live memory-health readout at the bottom of Claude Code — `🧠 2 now · 1 next │ atlas 8✓ │ ✎ today` — showing open tasks, stale atlas cards (cached; recomputed when HEAD moves or a card is edited), and days since the last journal entry. Registered once in your user settings; it self-locates the project — including an Engram-fied repo one level below where Claude was launched, shown with a `name:` prefix — so it works everywhere and stays blank in projects without memory. |
 
 ## Watch the memory live
@@ -126,5 +129,7 @@ small by construction. See [DESIGN.md](DESIGN.md) for the full rationale.
   two claims that a stale card can't guarantee.
 - You finish a fix → `/mem-journal` writes six lines, moves the task to Done, and patches
   the one atlas claim the fix invalidated.
+- You ask "is the codebase shaped the way we want?" → `/mem-arch` shows the Live diagram
+  (verified at `e9f21c3`), the Target beside it, and the two gaps still open between them.
 - Friday → `/mem-sync` re-verifies what drifted, digests old journals, and tells you what
   it changed.

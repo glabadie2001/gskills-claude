@@ -43,6 +43,7 @@
 
 - `atlas/<module>.md` — what each subsystem is and how it works (SHA-stamped);
   `atlas/INDEX-<area>.md` — area maps the Atlas table links to when the atlas is large
+- `architecture.md` — Live system diagram (SHA-stamped) vs Target (idealized) + explicit gap list
 - `journal/YYYY-MM-DD.md` — what happened, including **dead ends**; `journal/archive/` holds monthly digests
 - `tasks.md` — Now / Next / Later / Done (injected into session start automatically)
 - `decisions/NNN-slug.md` — append-only ADRs: why things are the way they are
@@ -50,4 +51,4 @@
 
 Skills: `/mem-recall` (answer from memory first) · `/mem-journal` (log work) ·
 `/mem-save` (file one fact) · `/mem-sync` (repair staleness, compact journals) ·
-`/mem-init` (bootstrap).
+`/mem-arch` (live vs target architecture) · `/mem-init` (bootstrap).

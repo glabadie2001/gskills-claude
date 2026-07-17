@@ -40,6 +40,10 @@ for that card: re-anchor the globs to the module's new location (or flag the car
 deletion if the module is gone). Vanished Key-files entries → fix in place. Dead
 references are the #1 cause of memory-induced wrong edits; never leave one standing.
 
+## 1c. Architecture overview
+
+`.claude/memory/architecture.md` present → run the same staleness check on its frontmatter (`paths` + `verified`). Stale → re-verify the **Live diagram only**, per /mem-arch `update` mode: the cards just re-verified in step 1 are the edge list; edit nodes/edges in place, bump `verified: <HEAD>` / `verified_date: <today>` / `verified_by: <your model id>`, and refresh `## Gaps` if the structure moved. **Never touch the Target diagram** — it changes only via explicit `/mem-arch target`. File missing after the version walk → report that `/mem-arch update` will bootstrap it. Its `paths:` globs get the same dead-reference lint as cards.
+
 ## 2. Coverage check
 
 List top-level source dirs. Any significant code area matched by NO card's `paths`:
@@ -100,6 +104,7 @@ Regenerate from the actual `atlas/` directory (excluding `_*.md`):
 ## 6. Report
 
 - Table: card → `fresh` / `re-verified (N commits)` / `created` / `still stale`.
+- Architecture overview: `fresh` / `re-verified` / `missing — run /mem-arch update`.
 - Index structure: flat, or which areas (and whether hierarchy was introduced this run).
 - Migrations applied this run (old → new version), if any.
 - Reverted/gone work found during compaction, and the cards flagged "re-verify skeptically".

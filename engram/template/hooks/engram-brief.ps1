@@ -238,6 +238,52 @@ try {
                 }
             }
         } catch { }
+
+        # ----- Architecture overview: same frontmatter contract as a card -----
+        try {
+            if ($isGit) {
+                $archPath = Join-Path $memDir 'architecture.md'
+                if (Test-Path -LiteralPath $archPath) {
+                    $aLines = [System.IO.File]::ReadAllLines($archPath)
+                    if ($aLines.Count -ge 2 -and $aLines[0].Trim() -eq '---') {
+                        $aVerified = ''; $aPaths = @(); $inAPaths = $false
+                        for ($i = 1; $i -lt $aLines.Count; $i++) {
+                            $l = $aLines[$i]
+                            if ($l.Trim() -eq '---') { break }
+                            if ($inAPaths -and $l -match '^\s+-\s*(.+?)\s*$') {
+                                $aPaths += $matches[1].Trim('"').Trim("'")
+                                continue
+                            }
+                            $inAPaths = $false
+                            if ($l -match '^verified:\s*(\S+)') { $aVerified = $matches[1]; continue }
+                            if ($l -match '^paths:\s*$')        { $inAPaths = $true; continue }
+                        }
+                        if ($aPaths.Count -gt 0) {
+                            $archMsg = ''
+                            if ((-not $aVerified) -or ($aVerified -match '^0+$')) {
+                                $archMsg = 'Architecture overview: no baseline - run /mem-arch update.'
+                            } else {
+                                $objType = (git -C $root cat-file -t $aVerified 2>$null)
+                                if ($LASTEXITCODE -ne 0 -or "$objType".Trim() -ne 'commit') {
+                                    $archMsg = 'Architecture overview: unknown baseline - run /mem-arch update.'
+                                } else {
+                                    $logLines = @(git -C $root log --oneline "$aVerified..HEAD" -- $aPaths 2>$null)
+                                    if ($LASTEXITCODE -eq 0) {
+                                        $behind = @($logLines | Where-Object { $_ -and $_.Trim().Length -gt 0 }).Count
+                                        if ($behind -gt 0) {
+                                            $plural = 's'
+                                            if ($behind -eq 1) { $plural = '' }
+                                            $archMsg = "Architecture overview: $behind commit$plural behind - run /mem-arch update."
+                                        }
+                                    }
+                                }
+                            }
+                            if ($archMsg) { $out.Add($archMsg) }
+                        }
+                    }
+                }
+            }
+        } catch { }
     }
 
     # ---------- emit, hard-capped at 80 lines ----------

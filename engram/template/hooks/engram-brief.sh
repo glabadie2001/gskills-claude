@@ -249,6 +249,44 @@ EOF_RPATHS
                 emit "$recent_line"
             fi
         fi
+
+        # ----- Architecture overview: same frontmatter contract as a card -----
+        local arch="$mem_dir/architecture.md"
+        if [ -r "$arch" ] && head -1 "$arch" | grep -q '^---[[:space:]]*$'; then
+            local afm averified apaths
+            afm=$(awk 'NR==1{next} /^---[[:space:]]*$/{exit} {print}' "$arch")
+            averified=$(printf '%s\n' "$afm" | sed -n 's/^verified:[[:space:]]*//p' | head -1 \
+                | awk '{print $1}')
+            apaths=$(printf '%s\n' "$afm" \
+                | awk '/^paths:[[:space:]]*$/{f=1;next}
+                       f && /^[[:space:]]+-[[:space:]]*/{sub(/^[[:space:]]+-[[:space:]]*/,"");
+                           gsub(/^["'\'']|["'\'']$/,""); print; next}
+                       f{f=0}')
+            if [ -n "$apaths" ]; then
+                local aarr=() ap abehind
+                while IFS= read -r ap; do
+                    [ -n "$ap" ] && aarr+=("$ap")
+                done <<EOF_APATHS
+$apaths
+EOF_APATHS
+                case "$averified" in
+                    ""|0000000*)
+                        emit 'Architecture overview: no baseline - run /mem-arch update.' ;;
+                    *)
+                        if [ "$(git -C "$root" cat-file -t "$averified" 2>/dev/null)" != "commit" ]; then
+                            emit 'Architecture overview: unknown baseline - run /mem-arch update.'
+                        else
+                            abehind=$(git -C "$root" log --oneline "$averified..HEAD" -- "${aarr[@]}" 2>/dev/null | grep -c .)
+                            [ -n "$abehind" ] || abehind=0
+                            if [ "$abehind" -eq 1 ] 2>/dev/null; then
+                                emit 'Architecture overview: 1 commit behind - run /mem-arch update.'
+                            elif [ "$abehind" -gt 1 ] 2>/dev/null; then
+                                emit "Architecture overview: $abehind commits behind - run /mem-arch update."
+                            fi
+                        fi ;;
+                esac
+            fi
+        fi
     fi
 
     flush_and_exit

@@ -85,6 +85,14 @@ sessions can weight their trust.)
 
 Then fix cross-card wikilinks: every name in **Depends on:** / **Used by:** must match a real card filename in `atlas/` (`[[auth]]` → `atlas/auth.md`). Rename or drop links that don't resolve.
 
+## 3b. Draw the architecture overview
+
+Fill `.claude/memory/architecture.md` (shipped by the installer; missing → skeleton in /mem-arch):
+
+- **Live diagram:** derive the module graph from the cards just written — their `## Interfaces` sections are the edge list; spot-check surprising edges against code. Follow the diagram rules in /mem-arch: Mermaid `graph TD`, nodes = card names, 5–15 nodes (big repos: draw at AREA granularity, matching the step-1 areas).
+- **Frontmatter:** `paths:` = union of the cards' globs (dedupe; a broad parent swallows its children — never a bare `**`); `verified:` = the captured sha; `verified_date:` = today; `verified_by:` = your model id (you assembled the graph, even if agents read the code).
+- Leave Target unset and Gaps as `- *(target not set)*` — the target is the user's call; suggest `/mem-arch target` in the report.
+
 ## 4. Rewrite MEMORY.md
 
 Edit `.claude/memory/MEMORY.md`:
@@ -107,4 +115,5 @@ Offer: "Want me to scan TODO/FIXME comments into tasks.md ## Later?" Only on yes
 
 - Cards written (name + paths each).
 - Partition rationale in 2 lines.
+- Architecture overview: Live diagram drawn (node count); remind that the Target is unset — `/mem-arch target` records the idealized architecture.
 - Anything needing human review: weak drafts, dropped globs, areas left uncovered.

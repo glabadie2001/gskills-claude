@@ -1,6 +1,6 @@
 # Engram migrations
 
-**Current tooling version: 3.** The installed memory's version lives at
+**Current tooling version: 4.** The installed memory's version lives at
 `.claude/memory/VERSION` (one integer; **missing file = version 1**). /mem-sync compares
 that number against the version above and applies each `## vN → vN+1` section below in
 order, writing the new number to VERSION after each section completes and appending a
@@ -98,3 +98,28 @@ Migrations touch structure and metadata only. They NEVER rewrite journal entries
 3. If any repo-local edits were made to `mem-journal/SKILL.md` to work around the old
    under-prompting (e.g. a manually added wikilink rule), they are superseded by the
    refreshed skill — no action needed beyond the tooling refresh itself.
+
+## v3 → v4 (architecture overview: live vs target)
+
+1. **Create `architecture.md`** — skip if `.claude/memory/architecture.md` already
+   exists. Otherwise create it from the skeleton in `mem-arch/SKILL.md` with
+   `verified: 0000000`, `paths:` = the union of the atlas cards' globs (dedupe; a broad
+   parent swallows its children — never a bare `**`, or journaling commits would keep it
+   perpetually stale), and `target_set: (none)`. The migration creates STRUCTURE only —
+   drawing the Live diagram is /mem-arch's job (step 1c of /mem-sync, or `/mem-arch
+   update`, handles it right after the walk).
+
+2. **"Where everything lives"** — skip if an `architecture.md` bullet is already present.
+   Otherwise insert after the `atlas/<module>.md` bullet, verbatim:
+
+   ```markdown
+   - `architecture.md` — Live system diagram (SHA-stamped) vs Target (idealized) + explicit gap list
+   ```
+
+3. **Skills line** — in the `Skills:` pointer block at the bottom of MEMORY.md, add
+   `/mem-arch (live vs target architecture)` before the `/mem-init` entry — skip if
+   `/mem-arch` is already mentioned.
+
+4. **Forward-only** — never backfill Target intent you didn't witness: the Target starts
+   unset and only an explicit `/mem-arch target` conversation sets it. The Gaps section
+   stays `- *(target not set)*` until then.

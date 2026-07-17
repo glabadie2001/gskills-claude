@@ -365,7 +365,7 @@ function group() {
     else g.top.push(p);
   }
   g.journal.sort().reverse(); g.archive.sort().reverse();     // newest first
-  const order = ["MEMORY.md", "tasks.md", "gotchas.md"];
+  const order = ["MEMORY.md", "architecture.md", "tasks.md", "gotchas.md"];
   g.top.sort((a, b) => (order.indexOf(a) + 99) - (order.indexOf(b) + 99) || a.localeCompare(b));
   return g;
 }

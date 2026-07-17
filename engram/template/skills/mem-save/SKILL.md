@@ -19,7 +19,7 @@ If `.claude/memory/` does not exist in this repo, say "Engram is not installed h
 
 Single-home rubric — every fact has exactly one home:
 
-> what the code IS → atlas card · WHY a choice was made → decisions/ · a trap that will bite again → gotchas.md (or the module's card if module-specific) · something TO DO → tasks.md · what HAPPENED (narrative, progress, dead ends) → journal/.
+> what the code IS → atlas card · the SYSTEM-LEVEL SHAPE (module boundaries, what talks to what, where the architecture should head) → architecture.md via the /mem-arch procedure · WHY a choice was made → decisions/ · a trap that will bite again → gotchas.md (or the module's card if module-specific) · something TO DO → tasks.md · what HAPPENED (narrative, progress, dead ends) → journal/.
 
 State the chosen home and why in ONE line before writing (e.g. "→ atlas/auth.md — describes what the token refresh code IS").
 

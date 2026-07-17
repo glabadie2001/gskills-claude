@@ -33,6 +33,7 @@ Facts are stored by *how fast they change*, because that determines the write di
     <module>.md
     INDEX-<area>.md  # area maps, only past ~20 cards: the master TOC lists areas
                      #   and sessions climb master → area index → card
+  architecture.md    # the system SHAPE: Live (SHA-stamped) vs Target (by decision) + gaps
   decisions/         # why it's that way     (never;  append-only ADRs)
     NNN-slug.md
   gotchas.md         # what bites            (accumulating; dated bullets)
@@ -42,10 +43,12 @@ Facts are stored by *how fast they change*, because that determines the write di
     archive/YYYY-MM.md   # monthly digests of compacted journals
 ```
 
-**Single-home rubric:** Is it about what the code *is*? → atlas. About *why* a choice was
-made? → decision. A trap that will bite again? → gotcha (module-specific traps go in that
-module's atlas card; cross-cutting ones in gotchas.md). Something *to do*? → task.
-Everything else — narrative, progress, dead ends — is journal.
+**Single-home rubric:** Is it about what the code *is*? → atlas. The *system-level shape*
+(module boundaries, what talks to what, where the architecture should head)? →
+architecture.md. About *why* a choice was made? → decision. A trap that will bite again?
+→ gotcha (module-specific traps go in that module's atlas card; cross-cutting ones in
+gotchas.md). Something *to do*? → task. Everything else — narrative, progress, dead
+ends — is journal.
 
 ### MEMORY.md (the index)
 
@@ -76,6 +79,30 @@ Cap ~60 lines/card. Cards are *edited in place* — never append contradictions.
 
 `paths` + `verified` make staleness mechanical: commits in `git log <verified>..HEAD -- <paths>`
 mean the card needs re-verification. The index TOC shows `✓` (fresh) or `⚠ N commits behind`.
+
+### Architecture overview (live vs target)
+
+`architecture.md` holds two Mermaid diagrams of the system at module granularity plus an
+explicit gap list, maintained by `/mem-arch`:
+
+- **Live — what the code is.** Atlas-natured: same frontmatter contract as a card
+  (`paths` globs + `verified` SHA + `verified_by`), so its staleness is computed by the
+  same `git log <verified>..HEAD -- <paths>` mechanism and surfaces in the session brief
+  and the linter. Node IDs are atlas card names, so the diagram doubles as a visual index
+  of the atlas — and the cards' *Interfaces* sections are the edge list it is re-derived
+  from.
+- **Target — what it should become.** Decision-natured: it never goes stale by commit;
+  it changes only when someone explicitly revises intent (`/mem-arch target`), and a
+  significant direction change gets an ADR. Same visual grammar and node IDs as Live,
+  so the difference between the diagrams can be read by eye.
+- **Gaps.** One dated bullet per structural difference, each pointing at the task or ADR
+  that tracks it. Regenerated whenever either diagram changes.
+
+The point of the juxtaposition: architectural drift is normally invisible until it is
+expensive. With an SHA-verified Live diagram beside a deliberate Target, drift becomes a
+visible, dated delta — closed by work, or accepted by revising the Target, but never
+silent. Both diagrams cap at 5–15 nodes; more means drawing the directory tree, not the
+architecture.
 
 ### Journal (activity log)
 
@@ -124,17 +151,19 @@ back. `gotchas.md`: dated bullets with file refs.
 
 | Skill | What it does |
 |---|---|
-| `/mem-init` | Bootstrap: fan out exploration over the codebase, write the initial atlas + index, wire the CLAUDE.md import. Day-one value — memory starts full, not empty. |
+| `/mem-init` | Bootstrap: fan out exploration over the codebase, write the initial atlas + index + Live architecture diagram, wire the CLAUDE.md import. Day-one value — memory starts full, not empty. |
 | `/mem-journal` | Append a journal entry for work just done; update tasks.md; nudge atlas/gotchas if the work invalidated them. |
 | `/mem-save` | Capture one fact; route it to its single home by the volatility rubric. |
-| `/mem-sync` | Repair pass: recompute staleness for every card, re-verify stale ones against the diff, bump SHAs, rebuild the index TOC, compact old journals into monthly digests, prune Done tasks. |
+| `/mem-sync` | Repair pass: recompute staleness for every card, re-verify stale ones against the diff, bump SHAs, re-verify the Live architecture diagram, rebuild the index TOC, compact old journals into monthly digests, prune Done tasks. |
+| `/mem-arch` | Architecture overview: `update` re-verifies the Live diagram against the code, `target` sets/revises the idealized one (ADR on big swings), and the gap list between them is regenerated on every change. Bootstrapped by `/mem-init` from the fresh atlas. |
 | `/mem-recall` | Retrieval protocol: answer from memory first (index → card → journal grep), cite freshness, fall back to code only for gaps — then backfill the card. |
 
 ## Read paths (hooks)
 
 - **SessionStart** — injects: last 2 journal files' recent entries, Now/Next tasks, and a
-  computed staleness summary ("3 cards stale: auth (4 commits), api (1), db (2)"). This is
-  the dynamic context a static import can't provide.
+  computed staleness summary ("3 cards stale: auth (4 commits), api (1), db (2)"), plus a
+  drift line when the architecture's Live diagram is behind the code. This is the dynamic
+  context a static import can't provide.
 - **Post-compaction check** — the same SessionStart hook fires with `source: "compact"`
   immediately after a compaction and injects a reminder to journal anything not yet
   captured. (True pre-compaction injection isn't possible: PreCompact command hooks can
