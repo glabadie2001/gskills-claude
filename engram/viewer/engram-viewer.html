@@ -131,6 +131,39 @@
   #content input[type=checkbox] { accent-color: var(--accent); }
   #content .fresh-ok { color: var(--accent); font-weight: 600; }
   #content .fresh-stale { color: #b8860b; font-weight: 600; }
+  /* in-place architecture graphs (```mermaid blocks) */
+  .mg { position: relative; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 12px 8px; margin: .9em 0; overflow-x: auto; }
+  .mg svg.mgsvg { display: block; width: 100%; height: auto; min-width: 480px; }
+  .mg .e { stroke: var(--muted); stroke-width: 1.3; fill: none; opacity: .55; }
+  .mg .e.cyc { stroke: #c9862d; stroke-dasharray: 4 3; opacity: .9; }
+  [data-theme="dark"] .mg .e.cyc { stroke: #d9a659; }
+  .mg .mk-dep { fill: var(--muted); }
+  .mg .mk-cyc { fill: #c9862d; }
+  [data-theme="dark"] .mg .mk-cyc { fill: #d9a659; }
+  .mg .elab { font: 9.5px ui-monospace, Consolas, monospace; fill: var(--muted);
+    paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
+  .mg .node .shp { fill: var(--bg); stroke: var(--border); stroke-width: 1.1; }
+  .mg .node.ext .shp { stroke-dasharray: 3 3; }
+  .mg .node text { font: 11px ui-sans-serif, system-ui, "Segoe UI", sans-serif; fill: var(--text); }
+  .mg .node.ext text { fill: var(--muted); }
+  .mg .node.lnk { cursor: pointer; }
+  .mg .node.lnk:hover .shp, .mg .node.lnk:focus-visible .shp { stroke: var(--accent); stroke-width: 1.6; }
+  .mg .node:focus { outline: none; }
+  .mg svg.dim .e { opacity: .08; }
+  .mg svg.dim .e.on { opacity: 1; stroke-width: 1.8; }
+  .mg svg.dim .elab { opacity: .08; }
+  .mg svg.dim .elab.on { opacity: 1; }
+  .mg svg.dim .node { opacity: .25; }
+  .mg svg.dim .node.on { opacity: 1; }
+  .mg-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+  .chip.warn { color: #c9862d; }
+  [data-theme="dark"] .chip.warn { color: #d9a659; }
+  .mg-tip { position: absolute; pointer-events: none; font-size: 11.5px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; white-space: nowrap;
+    transform: translate(-50%, -125%); opacity: 0; transition: opacity .12s;
+    box-shadow: 0 2px 8px rgba(0,0,0,.12); z-index: 3; }
+  .mg-tip.show { opacity: 1; }
   /* graph view */
   #graphWrap { position: relative; height: 100%; }
   #graph { display: block; width: 100%; height: 100%; cursor: grab; }
@@ -535,9 +568,14 @@ function mdToHtml(md) {
   while (i < lines.length) {
     const l = lines[i];
     if (/^```/.test(l)) {                                       // fenced code
-      flush(); let code = []; i++;
+      flush(); const info = l.replace(/^```/, "").trim().toLowerCase(); let code = []; i++;
       while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]);
-      i++; html += "<pre><code>" + esc(code.join("\n")) + "</code></pre>"; continue;
+      i++;
+      if (info === "mermaid") {                                 // rendered in place, see renderMermaidBlocks()
+        mgQueue.push(code.join("\n"));
+        html += "<div class='mg' data-mg='" + (mgQueue.length - 1) + "'></div>";
+      } else html += "<pre><code>" + esc(code.join("\n")) + "</code></pre>";
+      continue;
     }
     if (/^<!--/.test(l.trim())) {                               // comment block: skip
       flush();
@@ -612,6 +650,7 @@ function renderDoc(p, text) {
       blBox.appendChild(s);
     }
   }
+  mgQueue = [];
   $("content").innerHTML = body.trim()
     ? mdToHtml(body)
     : "<div class='empty'>(empty file — waiting for Claude to write…)</div>";
@@ -619,6 +658,7 @@ function renderDoc(p, text) {
     const target = resolveWiki(a.dataset.wiki);
     if (target) a.onclick = () => openFile(target); else a.classList.add("dead");
   });
+  renderMermaidBlocks();
 }
 function computeStale() {
   staleSet = new Set();
@@ -650,6 +690,292 @@ function resolveWiki(w) {
     if (p.startsWith("decisions/") && p.split("/").pop().startsWith(adr[1].padStart(3, "0"))) return p;
   for (const p of files.keys()) if (p.split("/").pop() === w + ".md") return p;
   return null;
+}
+
+/* ---------- in-place architecture graphs (```mermaid → interactive SVG) ----------
+   Parses the graph TD/LR subset the /mem-arch contract uses (`a --> b`,
+   `a -->|label| b`, chains, `id[label]`, `id[(store)]`, `id>external]`), computes
+   layering / knots (SCCs) / hub scores from the edges, and renders a layered SVG:
+   hover traces a module, amber dashes mark cycle edges, and a node whose id
+   resolves to an atlas card opens that card on click. Unparseable blocks fall
+   back to the old <pre> text. */
+let mgQueue = [];
+const MG_NODE = /^([A-Za-z0-9_.:\/-]+)\s*(\[\(([^)]*)\)\]|>\s*([^\]]*)\]|\[([^\]]*)\]|\(\(([^)]*)\)\)|\(([^)]*)\)|\{([^}]*)\})?\s*$/;
+function mgParse(src) {
+  const nodes = new Map(), edges = [], seen = new Set();
+  const ref = t => {
+    const m = (t || "").trim().match(MG_NODE);
+    if (!m) return null;
+    if (!nodes.has(m[1])) nodes.set(m[1], { id: m[1], label: m[1], shape: "rect", ext: false });
+    const n = nodes.get(m[1]);
+    if (m[2]) {
+      if (m[3] != null) { n.label = m[3]; n.shape = "store"; n.ext = true; }
+      else if (m[4] != null) { n.label = m[4]; n.shape = "flag"; n.ext = true; }
+      else n.label = [m[5], m[6], m[7], m[8]].find(x => x != null) || n.label;
+    }
+    return m[1];
+  };
+  for (let line of src.split("\n")) {
+    line = line.replace(/%%.*$/, "").trim();
+    if (!line || /^(graph|flowchart)\s+(TB|TD|BT|RL|LR)\b/.test(line) ||
+        /^(subgraph\b|end$|classDef\b|class\b|style\b|linkStyle\b|direction\b|click\b)/.test(line)) continue;
+    const parts = line.split(/\s*(?:--+|-\.+-*|==+)>\s*/);
+    if (parts.length > 1) {
+      let prev = ref(parts[0]);
+      for (let k = 1; k < parts.length; k++) {
+        let seg = parts[k], label = "";
+        const lm = seg.match(/^\|([^|]*)\|\s*([\s\S]*)$/);
+        if (lm) { label = lm[1].trim(); seg = lm[2]; }
+        const cur = ref(seg);
+        if (prev && cur && !seen.has(prev + "→" + cur)) {
+          seen.add(prev + "→" + cur); edges.push({ s: prev, t: cur, label });
+        }
+        prev = cur;
+      }
+    } else ref(line);
+  }
+  return { nodes, ids: [...nodes.keys()], edges };
+}
+function mgAnalyze(g) {
+  const n = g.ids.length, idx = new Map(g.ids.map((id, i) => [id, i]));
+  const adj = g.ids.map(() => []);
+  g.edges.forEach(e => adj[idx.get(e.s)].push(idx.get(e.t)));
+  // Tarjan — emits SCCs dependencies-first (reverse topological)
+  let counter = 0;
+  const stack = [], onstk = new Array(n).fill(false),
+        low = new Array(n).fill(0), num = new Array(n).fill(-1), comps = [];
+  function strong(v) {
+    num[v] = low[v] = counter++; stack.push(v); onstk[v] = true;
+    for (const w of adj[v]) {
+      if (num[w] < 0) { strong(w); low[v] = Math.min(low[v], low[w]); }
+      else if (onstk[w]) low[v] = Math.min(low[v], num[w]);
+    }
+    if (low[v] === num[v]) {
+      const c = []; let w;
+      do { w = stack.pop(); onstk[w] = false; c.push(w); } while (w !== v);
+      comps.push(c);
+    }
+  }
+  for (let v = 0; v < n; v++) if (num[v] < 0) strong(v);
+  const compOf = new Array(n);
+  comps.forEach((c, ci) => c.forEach(m => compOf[m] = ci));
+  const fanIn = new Array(n).fill(0), fanOut = new Array(n).fill(0);
+  const cyc = g.edges.map(e => {
+    const s = idx.get(e.s), t = idx.get(e.t);
+    fanOut[s]++; fanIn[t]++;
+    return compOf[s] === compOf[t];
+  });
+  // to-sink longest path over the condensation (deps arrive before dependers)
+  const lp = new Array(comps.length).fill(0);
+  comps.forEach((c, ci) => c.forEach(m => adj[m].forEach(w => {
+    if (compOf[w] !== ci) lp[ci] = Math.max(lp[ci], lp[compOf[w]] + 1);
+  })));
+  const maxLp = Math.max(0, ...lp);
+  const layerOf = g.ids.map((_, i) => maxLp - lp[compOf[i]]);
+  let tangle = 1;
+  comps.forEach(c => tangle = Math.max(tangle, c.length));
+  let hub = { name: null, score: 0, fi: 0, fo: 0 };
+  g.ids.forEach((id, i) => {
+    if (!g.nodes.get(id).ext && fanIn[i] * fanOut[i] > hub.score)
+      hub = { name: id, score: fanIn[i] * fanOut[i], fi: fanIn[i], fo: fanOut[i] };
+  });
+  return { idx, fanIn, fanOut, cyc, layerOf, depth: maxLp + 1, tangle, hub,
+           cycles: cyc.filter(Boolean).length };
+}
+function mgLayout(g, A) {
+  const ROW = 72, GAP = 24, PAD = 18, NH = 24;
+  const w = id => Math.max(40, g.nodes.get(id).label.length * 6.4 + 18);
+  const widths = g.ids.map(w);
+  let layers = [];
+  g.ids.forEach((id, i) => {
+    (layers[A.layerOf[i]] = layers[A.layerOf[i]] || []).push(i);
+  });
+  layers = layers.filter(L => L && L.length);
+  const layerIdx = {};
+  layers.forEach((L, li) => L.forEach(i => layerIdx[i] = li));
+  const nbr = g.ids.map(() => []);
+  g.edges.forEach(e => {
+    const s = A.idx.get(e.s), t = A.idx.get(e.t);
+    nbr[s].push(t); nbr[t].push(s);
+  });
+  const pos = {};
+  layers.forEach(L => L.forEach((i, p) => pos[i] = p));
+  for (let round = 0; round < 2; round++) for (const dir of [1, -1]) {
+    (dir === 1 ? layers : [...layers].reverse()).forEach(L => {
+      const key = {};
+      L.forEach(i => {
+        const ns = nbr[i].filter(j => layerIdx[j] === layerIdx[i] - dir);
+        key[i] = ns.length ? ns.reduce((a, j) => a + pos[j], 0) / ns.length : pos[i];
+      });
+      L.sort((a, b) => key[a] - key[b] || pos[a] - pos[b]);
+      L.forEach((i, p) => pos[i] = p);
+    });
+  }
+  let cw = 0;
+  layers.forEach(L => cw = Math.max(cw, L.reduce((a, i) => a + widths[i], 0) + GAP * (L.length - 1)));
+  cw += PAD * 2;
+  const cx = {};
+  layers.forEach(L => {
+    let x = (cw - (L.reduce((a, i) => a + widths[i], 0) + GAP * (L.length - 1))) / 2;
+    L.forEach(i => { cx[i] = x + widths[i] / 2; x += widths[i] + GAP; });
+  });
+  for (let it = 0; it < 3; it++) layers.forEach(L => {
+    const want = {};
+    L.forEach(i => want[i] = nbr[i].length ? nbr[i].reduce((a, j) => a + cx[j], 0) / nbr[i].length : cx[i]);
+    let xcur = -Infinity;
+    [...L].sort((a, b) => want[a] - want[b]).forEach(i => {
+      let x = want[i];
+      if (xcur !== -Infinity) x = Math.max(x, xcur + GAP + widths[i] / 2);
+      cx[i] = x; xcur = x + widths[i] / 2;
+    });
+  });
+  let minX = Infinity, maxX = -Infinity;
+  g.ids.forEach((_, i) => {
+    minX = Math.min(minX, cx[i] - widths[i] / 2);
+    maxX = Math.max(maxX, cx[i] + widths[i] / 2);
+  });
+  const shift = PAD - minX, geo = {};
+  g.ids.forEach((id, i) => geo[id] = { cx: cx[i] + shift, cy: PAD + 14 + layerIdx[i] * ROW, w: widths[i], h: NH });
+  return { geo, w: (maxX - minX) + PAD * 2, h: PAD * 2 + 12 + (layers.length - 1) * ROW + NH };
+}
+let mgUid = 0;
+function mgRender(host, g) {
+  const A = mgAnalyze(g), L = mgLayout(g, A), NS = "http://www.w3.org/2000/svg";
+  const uid = "mg" + (++mgUid);
+  const mk = (tag, attrs, parent) => {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  };
+  host.textContent = "";
+  const svg = mk("svg", { "class": "mgsvg", viewBox: "0 0 " + L.w + " " + L.h, role: "img",
+    "aria-label": "architecture graph: " + g.ids.length + " modules, " + g.edges.length + " edges" });
+  host.appendChild(svg);
+  svg.style.maxWidth = Math.min(L.w * 1.25, 1200) + "px";
+  if (L.w <= 520) svg.style.minWidth = "0";
+  const defs = mk("defs", {}, svg);
+  for (const kind of ["dep", "cyc"]) {
+    const m = mk("marker", { id: uid + "-" + kind, viewBox: "0 0 8 8", refX: 7, refY: 4,
+      markerWidth: 6.5, markerHeight: 6.5, orient: "auto-start-reverse" }, defs);
+    mk("path", { d: "M0,0.6 L7.4,4 L0,7.4 Z", "class": "mk-" + kind }, m);
+  }
+  const trim = (a, b) => {
+    const tEx = (box, f, t) => Math.min(
+      (t[0] - f[0]) !== 0 ? (box.w / 2 + 3) / Math.abs(t[0] - f[0]) : Infinity,
+      (t[1] - f[1]) !== 0 ? (box.h / 2 + 3) / Math.abs(t[1] - f[1]) : Infinity, 0.45);
+    const pa = [a.cx, a.cy], pb = [b.cx, b.cy];
+    const dx = pb[0] - pa[0], dy = pb[1] - pa[1], ta = tEx(a, pa, pb), tb = tEx(b, pb, pa);
+    return { x1: pa[0] + dx * ta, y1: pa[1] + dy * ta, x2: pb[0] - dx * tb, y2: pb[1] - dy * tb };
+  };
+  const edgeEls = [], labEls = [];
+  g.edges.forEach((e, i) => {
+    const t = trim(L.geo[e.s], L.geo[e.t]);
+    const dx = t.x2 - t.x1, dy = t.y2 - t.y1, len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const bow = 0.06 * len, mx = (t.x1 + t.x2) / 2, my = (t.y1 + t.y2) / 2;
+    const qx = mx - dy / len * bow, qy = my + dx / len * bow;
+    edgeEls.push(mk("path", {
+      d: "M" + t.x1 + "," + t.y1 + " Q" + qx + "," + qy + " " + t.x2 + "," + t.y2,
+      "class": "e" + (A.cyc[i] ? " cyc" : ""),
+      "marker-end": "url(#" + uid + "-" + (A.cyc[i] ? "cyc" : "dep") + ")"
+    }, svg));
+    if (e.label) {
+      const tx = mk("text", { x: 0.25 * t.x1 + 0.5 * qx + 0.25 * t.x2,
+        y: 0.25 * t.y1 + 0.5 * qy + 0.25 * t.y2 - 3, "text-anchor": "middle", "class": "elab" }, svg);
+      tx.textContent = e.label.length > 26 ? e.label.slice(0, 25) + "…" : e.label;
+      labEls.push(tx);
+    } else labEls.push(null);
+  });
+  const tip = document.createElement("div");
+  tip.className = "mg-tip"; host.appendChild(tip);
+  g.ids.forEach(id => {
+    const node = g.nodes.get(id), box = L.geo[id], ni = A.idx.get(id);
+    const card = resolveWiki(id);
+    const gr = mk("g", { "class": "node" + (node.ext ? " ext" : "") + (card ? " lnk" : ""),
+      tabindex: 0, "data-n": id, role: card ? "link" : "img",
+      "aria-label": id + ": fan-in " + A.fanIn[ni] + ", fan-out " + A.fanOut[ni] +
+        (card ? " — open atlas card" : "") }, svg);
+    const x = box.cx - box.w / 2, y = box.cy - box.h / 2;
+    if (node.shape === "store") {
+      const ry = 4.5;
+      mk("path", { "class": "shp", d: "M" + x + "," + (y + ry) +
+        " A" + (box.w / 2) + "," + ry + " 0 0 1 " + (x + box.w) + "," + (y + ry) +
+        " V" + (y + box.h - ry) +
+        " A" + (box.w / 2) + "," + ry + " 0 0 1 " + x + "," + (y + box.h - ry) + " Z" }, gr);
+      mk("path", { "class": "shp", fill: "none", d: "M" + x + "," + (y + ry) +
+        " A" + (box.w / 2) + "," + ry + " 0 0 0 " + (x + box.w) + "," + (y + ry) }, gr);
+    } else if (node.shape === "flag") {
+      mk("polygon", { "class": "shp", points: (x + 8) + "," + y + " " + (x + box.w) + "," + y +
+        " " + (x + box.w) + "," + (y + box.h) + " " + x + "," + (y + box.h) }, gr);
+    } else {
+      mk("rect", { "class": "shp", x: x, y: y, width: box.w, height: box.h, rx: 4 }, gr);
+    }
+    const tx = mk("text", { x: box.cx, y: box.cy + 3.8, "text-anchor": "middle" }, gr);
+    tx.textContent = node.label.length > 30 ? node.label.slice(0, 29) + "…" : node.label;
+    const on = () => {
+      svg.classList.add("dim"); gr.classList.add("on");
+      g.edges.forEach((e, i) => {
+        if (e.s !== id && e.t !== id) return;
+        edgeEls[i].classList.add("on");
+        if (labEls[i]) labEls[i].classList.add("on");
+        const other = svg.querySelector("[data-n='" + (e.s === id ? e.t : e.s) + "']");
+        if (other) other.classList.add("on");
+      });
+      tip.textContent = id + " · in " + A.fanIn[ni] + " · out " + A.fanOut[ni] +
+        (card ? " · click to open card" : "");
+      const r = svg.getBoundingClientRect(), hr = host.getBoundingClientRect();
+      tip.style.left = (r.left - hr.left + host.scrollLeft + box.cx / L.w * r.width) + "px";
+      tip.style.top = (r.top - hr.top + (box.cy - box.h / 2) / L.h * r.height) + "px";
+      tip.classList.add("show");
+    };
+    const off = () => {
+      svg.classList.remove("dim");
+      svg.querySelectorAll(".on").forEach(el => el.classList.remove("on"));
+      tip.classList.remove("show");
+    };
+    gr.addEventListener("mouseenter", on);
+    gr.addEventListener("mouseleave", off);
+    gr.addEventListener("focus", on);
+    gr.addEventListener("blur", off);
+    if (card) {
+      gr.addEventListener("click", () => openFile(card));
+      gr.addEventListener("keydown", e => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openFile(card); }
+      });
+    }
+  });
+  const chips = document.createElement("div");
+  chips.className = "mg-chips";
+  const ext = g.ids.filter(id => g.nodes.get(id).ext).length;
+  const chip = (label, val, warn) => {
+    const c = document.createElement("span");
+    c.className = "chip" + (warn ? " warn" : "");
+    c.innerHTML = "<b></b> ";
+    c.querySelector("b").textContent = label + ":";
+    c.append(" " + val);
+    chips.appendChild(c);
+  };
+  chip("modules", (g.ids.length - ext) + (ext ? " +" + ext + " ext" : ""));
+  chip("edges", String(g.edges.length));
+  chip("tangle", A.tangle + "/" + g.ids.length, A.tangle > 1);
+  if (A.cycles) chip("cycle edges", A.cycles + "/" + g.edges.length, true);
+  chip("depth", String(A.depth));
+  if (A.hub.name) chip("hub", A.hub.name + " " + A.hub.fi + "×" + A.hub.fo, A.hub.score >= 12);
+  host.appendChild(chips);
+}
+function renderMermaidBlocks() {
+  $("content").querySelectorAll("div.mg[data-mg]").forEach(d => {
+    const src = mgQueue[+d.dataset.mg] || "";
+    try {
+      const g = mgParse(src);
+      if (g.edges.length) { mgRender(d, g); return; }
+    } catch (e) { /* fall through to text */ }
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.textContent = src;
+    pre.appendChild(code);
+    d.replaceWith(pre);
+  });
 }
 
 /* ---------- memory graph (Obsidian-style, canvas force layout) ---------- */

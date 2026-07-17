@@ -34,7 +34,7 @@ Plus six skills and a session-start hook:
 | `/mem-journal` | Log what just happened (including what *failed* and why), reconcile tasks |
 | `/mem-save` | File one fact into its single home |
 | `/mem-sync` | Repair pass: re-verify stale cards against the git diff, compact old journals, prune tasks, rebuild the index |
-| `/mem-arch` | Architecture overview: keep the **Live** diagram verified against the code, set the **Target** (idealized) one, and keep the gap between them explicit |
+| `/mem-arch` | Architecture overview: keep the **Live** diagram verified against the code, set the **Target** (idealized) one, and keep the gap between them explicit. `render` produces a standalone X-ray report (computed layering, knots, hub scores, dependency structure matrix); `extract` diffs the diagram against the code's real import graph; `compare a..b` shows a refactor's architectural effect between two revs as a before→after diff with vital-sign deltas |
 | SessionStart hook | Injects a brief every session: open tasks, recent journal entries, which atlas cards are stale, and whether the architecture's Live diagram has drifted (all computed live from git). After a context compaction it instead reminds the session to journal anything unlogged. |
 | Status line | A live memory-health readout at the bottom of Claude Code — `🧠 2 now · 1 next │ atlas 8✓ │ ✎ today` — showing open tasks, stale atlas cards (cached; recomputed when HEAD moves or a card is edited), and days since the last journal entry. Registered once in your user settings; it self-locates the project — including an Engram-fied repo one level below where Claude was launched, shown with a `name:` prefix — so it works everywhere and stays blank in projects without memory. |
 
@@ -43,7 +43,11 @@ Plus six skills and a session-start hook:
 `viewer/engram-viewer.html` is a zero-dependency, single-file memory browser: open it in
 Chrome or Edge, point it at a repo with Engram installed (or the `.claude/memory/` folder
 directly), and browse the index, atlas, journal, tasks, and decisions as rendered pages
-with clickable `[[wikilinks]]`. It polls the folder every ~1.5 s, so while Claude works
+with clickable `[[wikilinks]]`. Architecture diagrams render as **interactive graphs in
+place** — every ` ```mermaid ` block becomes a computed layered layout with cycle edges
+dashed in amber, vital-sign chips (tangle, depth, hub) underneath, hover-tracing, and
+click-through from a node to its atlas card (node IDs are card names by contract).
+It polls the folder every ~1.5 s, so while Claude works
 you see each write land — changed files pulse in the sidebar, and every change is captured
 as a real line diff (computed natively in the browser; the viewer caches file contents and
 runs an LCS diff, no git or Engram plumbing involved). The activity feed shows +/− counts

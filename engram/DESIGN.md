@@ -104,6 +104,18 @@ visible, dated delta — closed by work, or accepted by revising the Target, but
 silent. Both diagrams cap at 5–15 nodes; more means drawing the directory tree, not the
 architecture.
 
+The diagrams stay plain Mermaid in git; visualization is generated, never stored. The
+viewer renders every ` ```mermaid ` block as an interactive layered graph in place
+(computed layout, cycle edges flagged, node→atlas-card click-through), and
+`/mem-arch render` produces the deeper standalone X-ray from the bundled
+`skills/mem-arch/xray.html`: the same computed layering plus knots (strongly connected
+components — the objective spaghetti number), hub scores (fan-in × fan-out), and a
+dependency structure matrix. The X-ray's before→after diff view gives the other two
+modes their teeth: `extract` diffs Live against the import graph the code actually has
+(testimony vs forensics — divergence is either a stale diagram or real erosion, never
+silently absorbed), and `compare a..b` diffs the architecture between two revs to show
+what a refactor did to the shape.
+
 ### Journal (activity log)
 
 `journal/YYYY-MM-DD.md`, append-only entries:
@@ -155,7 +167,7 @@ back. `gotchas.md`: dated bullets with file refs.
 | `/mem-journal` | Append a journal entry for work just done; update tasks.md; nudge atlas/gotchas if the work invalidated them. |
 | `/mem-save` | Capture one fact; route it to its single home by the volatility rubric. |
 | `/mem-sync` | Repair pass: recompute staleness for every card, re-verify stale ones against the diff, bump SHAs, re-verify the Live architecture diagram, rebuild the index TOC, compact old journals into monthly digests, prune Done tasks. |
-| `/mem-arch` | Architecture overview: `update` re-verifies the Live diagram against the code, `target` sets/revises the idealized one (ADR on big swings), and the gap list between them is regenerated on every change. Bootstrapped by `/mem-init` from the fresh atlas. |
+| `/mem-arch` | Architecture overview: `update` re-verifies the Live diagram against the code, `target` sets/revises the idealized one (ADR on big swings), and the gap list between them is regenerated on every change. Bootstrapped by `/mem-init` from the fresh atlas. `render` generates the standalone X-ray report from the bundled `xray.html`; `extract` diffs Live against the real import graph collapsed onto atlas card paths; `compare` diffs the architecture between two revs. |
 | `/mem-recall` | Retrieval protocol: answer from memory first (index → card → journal grep), cite freshness, fall back to code only for gaps — then backfill the card. |
 
 ## Read paths (hooks)
