@@ -41,6 +41,20 @@ try {
     if ($sourceVal -eq 'compact') {
         $out.Add('## Engram: post-compaction check')
         $out.Add('Context was just compacted. Anything learned before compaction and not yet journaled is at risk of being lost. If there are unlogged milestones, dead ends, or decisions from earlier in this session, append a journal entry now (follow /mem-journal), then continue.')
+        # Re-inject the tail of today's journal: if a PreCompact capture hook just wrote
+        # a draft, this is what carries it into the post-compaction context.
+        try {
+            $todayJ = Join-Path $memDir ('journal\' + (Get-Date -Format 'yyyy-MM-dd') + '.md')
+            if (Test-Path -LiteralPath $todayJ) {
+                $jl = [System.IO.File]::ReadAllLines($todayJ)
+                $tail = @($jl | Select-Object -Last 25)
+                if ($tail.Count -gt 0) {
+                    $out.Add('')
+                    $out.Add('### Today''s journal (tail)')
+                    foreach ($tl in $tail) { $out.Add($tl) }
+                }
+            }
+        } catch { }
         foreach ($line in $out) { Write-Output $line }
         exit 0
     }
@@ -140,10 +154,12 @@ try {
                 $cards = @()
                 if (Test-Path -LiteralPath $atlasDir) {
                     $cards = @(Get-ChildItem -LiteralPath $atlasDir -File -Filter '*.md' |
-                        Where-Object { $_.Name -notlike '_*' })
+                        Where-Object { $_.Name -notlike '_*' } |
+                        Sort-Object Name)
                 }
                 if ($cards.Count -gt 0) {
                     $staleReports = New-Object System.Collections.Generic.List[string]
+                    $recentList = New-Object System.Collections.Generic.List[object]
                     $checked = 0
                     foreach ($card in $cards) {
                         try {
@@ -165,6 +181,7 @@ try {
                             if (-not $module) { $module = $card.BaseName }
                             if ($cardPaths.Count -eq 0) { continue }   # malformed card: skip silently
                             $checked++
+                            $recentList.Add(@{ m = $module; p = $cardPaths })
                             if ((-not $verified) -or ($verified -match '^0+$')) {
                                 $staleReports.Add("$module (unknown baseline)")
                                 continue
@@ -195,6 +212,29 @@ try {
                             $out.Add('STALE cards - consider /mem-sync: ' + ($staleReports -join ', '))
                         }
                     }
+
+                    # ----- Recent activity: commits in the last 24h touching each card's paths -----
+                    # Reuses the cards parsed above (module + paths); omit the section entirely
+                    # when nothing changed (silence beats noise). Same silent-failure discipline.
+                    try {
+                        if ($recentList.Count -gt 0) {
+                            $recentReports = New-Object System.Collections.Generic.List[string]
+                            foreach ($rc in $recentList) {
+                                $rlog = @(git -C $root log --oneline --since=24.hours -- $rc.p 2>$null)
+                                if ($LASTEXITCODE -ne 0) { continue }
+                                $rn = @($rlog | Where-Object { $_ -and $_.Trim().Length -gt 0 }).Count
+                                if ($rn -gt 0) {
+                                    $rplural = 's'
+                                    if ($rn -eq 1) { $rplural = '' }
+                                    $recentReports.Add("$($rc.m) ($rn commit$rplural)")
+                                }
+                            }
+                            if ($recentReports.Count -gt 0) {
+                                $out.Add('### Recent activity (24h)')
+                                $out.Add($recentReports -join ', ')
+                            }
+                        }
+                    } catch { }
                 }
             }
         } catch { }

@@ -51,6 +51,15 @@ List top-level source dirs. Any significant code area matched by NO card's `path
 For each `journal/YYYY-MM-DD.md` (exclude `_template.md`) dated more than 14 days ago:
 
 1. **Idempotency:** skip the day if `## YYYY-MM-DD` already appears in `journal/archive/YYYY-MM.md`.
+1b. **Outcome check (success-labeling):** for each entry with a `**Commits:**` line, check
+   each sha before digesting: `git cat-file -t <sha>` fails → outcome `(gone — history
+   rewritten)`; `git log --oneline --grep="<sha>"` returns a commit whose subject starts
+   with "Revert" → outcome `(reverted by <that sha>)`. Append the outcome to that entry's
+   headline bullet in the digest. An entry whose work was reverted has UNRELIABLE
+   Learned/guidance: keep it verbatim (never rewrite) but prefix its Learned line with
+   `(from reverted work:)`, and report every card the entry wikilinks under "re-verify
+   skeptically" in step 6 — guidance that preceded a revert is the research-documented
+   path to confidently-wrong memory.
 2. Append to `journal/archive/YYYY-MM.md` (create if missing):
 
    ```
@@ -93,6 +102,7 @@ Regenerate from the actual `atlas/` directory (excluding `_*.md`):
 - Table: card → `fresh` / `re-verified (N commits)` / `created` / `still stale`.
 - Index structure: flat, or which areas (and whether hierarchy was introduced this run).
 - Migrations applied this run (old → new version), if any.
+- Reverted/gone work found during compaction, and the cards flagged "re-verify skeptically".
 - Journals compacted (count of days archived + files deleted).
 - Done tasks pruned (count).
 - Coverage gaps (and whether `--full` filled them).

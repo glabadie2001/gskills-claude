@@ -14,6 +14,7 @@ set -u
 # ---------- args ----------
 target=""
 refresh=0
+autocapture=0
 while [ $# -gt 0 ]; do
     case "$1" in
         -t|--target|-Target)
@@ -21,8 +22,10 @@ while [ $# -gt 0 ]; do
             target="$2"; shift 2 ;;
         --refresh-tooling|-RefreshTooling)
             refresh=1; shift ;;
+        --auto-capture|-AutoCapture)
+            autocapture=1; shift ;;
         -h|--help)
-            echo "Usage: install.sh --target <path> [--refresh-tooling]"; exit 0 ;;
+            echo "Usage: install.sh --target <path> [--refresh-tooling] [--auto-capture]"; exit 0 ;;
         -*)
             echo "ERROR: unknown option: $1" >&2; exit 1 ;;
         *)
@@ -119,13 +122,34 @@ fi
 
 # ---------- 4. merge hooks into settings.json (bash-shell hook variant) ----------
 # Single-quoted so ${CLAUDE_PROJECT_DIR} stays literal (Claude Code substitutes it).
-entry_json='{
+sessionstart_entry_json='{
   "hooks": [
     {
       "type": "command",
       "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-brief.sh\"",
       "shell": "bash",
       "timeout": 30
+    }
+  ]
+}'
+precompact_entry_json='{
+  "hooks": [
+    {
+      "type": "command",
+      "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-capture.sh\"",
+      "shell": "bash",
+      "timeout": 180
+    }
+  ]
+}'
+sessionend_entry_json='{
+  "hooks": [
+    {
+      "type": "command",
+      "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-capture.sh\"",
+      "shell": "bash",
+      "timeout": 300,
+      "async": true
     }
   ]
 }'
@@ -155,10 +179,98 @@ Add this entry to the "SessionStart" array under "hooks" yourself:
 EOF
 }
 
-if [ -f "$settings_path" ] && grep -q 'engram-brief' "$settings_path" 2>/dev/null; then
-    echo "  - settings: Engram hook already registered - settings.json unchanged."
-elif [ ! -f "$settings_path" ]; then
-    cat > "$settings_path" <<'EOF'
+print_manual_capture() {
+    cat <<'EOF'
+MANUAL STEP (auto-capture): jq is not installed, so add these two entries under
+"hooks" in .claude/settings.json yourself (draft journal entries from the
+transcript via headless Claude):
+
+  "PreCompact": [
+    { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-capture.sh\"", "shell": "bash", "timeout": 180 } ] }
+  ],
+  "SessionEnd": [
+    { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-capture.sh\"", "shell": "bash", "timeout": 300, "async": true } ] }
+  ]
+EOF
+}
+
+# Graft one hook-group entry into .hooks.<evt>, idempotent via a command marker
+# and safe against a malformed (non-array) existing value. Writes via a temp file.
+# Usage: jq_graft <settings_path> <event> <entry_json> <marker>
+jq_graft() {
+    local sp="$1" evt="$2" entry="$3" marker="$4" tmp
+    tmp=$(mktemp) || return 1
+    if jq --arg evt "$evt" --arg marker "$marker" --argjson entry "$entry" '
+        .hooks = (.hooks // {})
+        | .hooks[$evt] = (
+            if ((.hooks[$evt] // []) | tostring | contains($marker))
+            then (.hooks[$evt] // [])
+            else ((.hooks[$evt] // []) + [$entry])
+            end)
+    ' "$sp" > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$sp"
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
+if [ -f "$settings_path" ]; then
+    # Existing settings.json.
+    if command -v jq >/dev/null 2>&1; then
+        merge_ok=1
+        jq_graft "$settings_path" "SessionStart" "$sessionstart_entry_json" "engram-brief" || merge_ok=0
+        if [ "$autocapture" = 1 ]; then
+            jq_graft "$settings_path" "PreCompact" "$precompact_entry_json" "engram-capture" || merge_ok=0
+            jq_graft "$settings_path" "SessionEnd" "$sessionend_entry_json" "engram-capture" || merge_ok=0
+        fi
+        if [ "$merge_ok" = 1 ]; then
+            if [ "$autocapture" = 1 ]; then
+                echo "  - settings: merged Engram SessionStart + auto-capture (PreCompact + SessionEnd) hooks into settings.json."
+            else
+                echo "  - settings: merged Engram SessionStart hook into settings.json."
+            fi
+        else
+            echo "WARNING: jq failed to merge one or more hooks into settings.json (malformed shape?) - see manual steps below." >&2
+            print_manual_merge
+            [ "$autocapture" = 1 ] && print_manual_capture
+        fi
+    else
+        # No jq: never touch an existing settings.json - print manual steps instead.
+        if grep -q 'engram-brief' "$settings_path" 2>/dev/null; then
+            echo "  - settings: Engram SessionStart hook already registered - settings.json unchanged."
+        else
+            print_manual_merge
+        fi
+        if [ "$autocapture" = 1 ]; then
+            if grep -q 'engram-capture' "$settings_path" 2>/dev/null; then
+                echo "  - settings: Engram auto-capture hooks already registered - settings.json unchanged."
+            else
+                print_manual_capture
+            fi
+        fi
+    fi
+else
+    # Fresh settings.json: safe to write directly (no existing content to lose).
+    if [ "$autocapture" = 1 ]; then
+        cat > "$settings_path" <<'EOF'
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-brief.sh\"", "shell": "bash", "timeout": 30 } ] }
+    ],
+    "PreCompact": [
+      { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-capture.sh\"", "shell": "bash", "timeout": 180 } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-capture.sh\"", "shell": "bash", "timeout": 300, "async": true } ] }
+    ]
+  }
+}
+EOF
+        echo "  - settings: wrote fresh .claude/settings.json with SessionStart + auto-capture hooks."
+    else
+        cat > "$settings_path" <<'EOF'
 {
   "hooks": {
     "SessionStart": [
@@ -176,21 +288,12 @@ elif [ ! -f "$settings_path" ]; then
   }
 }
 EOF
-    echo "  - settings: wrote fresh .claude/settings.json with the Engram SessionStart hook."
-elif command -v jq >/dev/null 2>&1; then
-    tmp=$(mktemp)
-    if jq --argjson entry "$entry_json" \
-        '.hooks = (.hooks // {}) | .hooks.SessionStart = ((.hooks.SessionStart // []) + [$entry])' \
-        "$settings_path" > "$tmp" 2>/dev/null; then
-        mv "$tmp" "$settings_path"
-        echo "  - settings: appended Engram SessionStart hook to existing settings.json."
-    else
-        rm -f "$tmp"
-        echo "WARNING: jq failed to parse existing settings.json - NOT modifying it." >&2
-        print_manual_merge
+        echo "  - settings: wrote fresh .claude/settings.json with the Engram SessionStart hook."
     fi
-else
-    print_manual_merge
+fi
+
+if [ "$autocapture" != 1 ]; then
+    echo "Auto-capture available: re-run with --auto-capture to enable transcript-draft journaling (PreCompact + SessionEnd)."
 fi
 
 # ---------- 5. CLAUDE.md ----------
@@ -204,6 +307,22 @@ else
     fi
     cat "$snippet" >> "$claude_md"
     echo "  - CLAUDE.md: appended Engram block."
+fi
+
+# ---------- 6. journal union-merge (prevents same-day merge conflicts in teams) ----------
+ga_path="$target/.gitattributes"
+if ! grep -q '\.claude/memory/journal/' "$ga_path" 2>/dev/null; then
+    if [ -f "$ga_path" ] && [ -s "$ga_path" ] && [ -n "$(tail -c 1 "$ga_path" 2>/dev/null)" ]; then
+        printf '\n' >> "$ga_path"
+    fi
+    {
+        echo "# Engram: journals are append-only; union-merge prevents same-day conflicts"
+        echo ".claude/memory/journal/*.md merge=union"
+        echo ".claude/memory/journal/archive/*.md merge=union"
+    } >> "$ga_path"
+    echo "  - .gitattributes: journal union-merge rules added."
+else
+    echo "  - .gitattributes: journal merge rules already present - unchanged."
 fi
 
 # ---------- summary ----------

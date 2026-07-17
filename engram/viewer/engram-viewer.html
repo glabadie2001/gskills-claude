@@ -71,6 +71,12 @@
   .chip { background: var(--chip-bg); border-radius: 20px; padding: 2px 10px; font-size: 12px;
     color: var(--muted); }
   .chip b { color: var(--text); font-weight: 600; }
+  #backlinks { display: flex; flex-wrap: wrap; gap: 6px; margin: -8px 0 14px; align-items: center; }
+  #backlinks .bl-label { font-size: 11.5px; color: var(--muted); }
+  #backlinks .bl { background: var(--accent-soft); color: var(--accent); border-radius: 20px;
+    padding: 2px 10px; font-size: 12px; cursor: pointer; }
+  #backlinks .bl:hover { text-decoration: underline; }
+  nav .item .stale { color: #c9862d; flex: none; font-size: 11px; }
   #added {
     border: 1px solid var(--add-border); background: var(--add-bg); border-radius: 8px;
     padding: 10px 14px; margin: 0 0 16px; font-size: 13px;
@@ -178,6 +184,7 @@
     <div id="doc" hidden>
       <div id="crumb"></div>
       <div id="chips"></div>
+      <div id="backlinks" hidden></div>
       <div id="added" hidden></div>
       <div id="content"></div>
     </div>
@@ -218,6 +225,7 @@ let memDir = null;            // FileSystemDirectoryHandle of .claude/memory
 let rootName = "";
 let files = new Map();        // path -> {handle, mtime, size}
 const contentCache = new Map(); // path -> last seen text (basis for diffs)
+let staleSet = new Set();     // card paths marked ⚠ in MEMORY.md / INDEX-* tables (as of last sync)
 let openPath = null;
 let openText = "";
 let pollTimer = null;
@@ -315,8 +323,10 @@ async function poll(first) {
   }
   for (const p of files.keys()) if (!next.has(p)) events.push({ type: "removed", path: p });
   files = next;
-  if (first)   // seed the diff basis silently
+  if (first) {  // seed the diff basis silently
     for (const p of files.keys()) contentCache.set(p, (await readFile(p)) || "");
+    computeStale();
+  }
   if (events.length || first) renderTree();
   for (const ev of events) {
     const before = contentCache.get(ev.path) || "";
@@ -339,6 +349,7 @@ async function poll(first) {
       const m = $("main"); m.classList.remove("flash"); void m.offsetWidth; m.classList.add("flash");
     }
   }
+  if (events.length) computeStale();
 }
 
 /* ---------- sidebar tree ---------- */
@@ -365,6 +376,7 @@ function item(p) {
   const info = files.get(p);
   const recent = info && info.changedAt && Date.now() - info.changedAt < 6000;
   d.innerHTML = (recent ? "<span class='ping'></span>" : "") +
+    (staleSet.has(p) ? "<span class='stale' title='stale as of last sync'>⚠</span>" : "") +
     "<span class='name'></span><span class='meta'></span>";
   d.querySelector(".name").textContent = p.split("/").pop().replace(/\.md$/, "");
   if (info && info.changedAt) d.querySelector(".meta").textContent = ago(info.changedAt);
@@ -586,6 +598,20 @@ function renderDoc(p, text) {
     c.append(" " + (Array.isArray(v) ? v.join(", ") : v));
     chips.appendChild(c);
   }
+  const bl = computeBacklinks(p);
+  const blBox = $("backlinks");
+  blBox.hidden = !bl.length;
+  if (bl.length) {
+    blBox.innerHTML = "<span class='bl-label'>↩ linked from:</span>";
+    for (const src of bl) {
+      const s = document.createElement("span");
+      s.className = "bl";
+      s.textContent = src.split("/").pop().replace(/\.md$/, "");
+      s.title = src;
+      s.onclick = () => openFile(src);
+      blBox.appendChild(s);
+    }
+  }
   $("content").innerHTML = body.trim()
     ? mdToHtml(body)
     : "<div class='empty'>(empty file — waiting for Claude to write…)</div>";
@@ -593,6 +619,28 @@ function renderDoc(p, text) {
     const target = resolveWiki(a.dataset.wiki);
     if (target) a.onclick = () => openFile(target); else a.classList.add("dead");
   });
+}
+function computeStale() {
+  staleSet = new Set();
+  for (const [p, text] of contentCache) {
+    if (p !== "MEMORY.md" && !/^atlas\/INDEX-[^/]+\.md$/.test(p)) continue;
+    for (const line of (text || "").split("\n")) {
+      if (!line.startsWith("|") || line.indexOf("⚠") < 0) continue;
+      const m = line.match(/\[\[([^\]]+)\]\]/);
+      if (!m) continue;
+      const t = resolveWiki(m[1]);
+      if (t) staleSet.add(t);
+    }
+  }
+}
+function computeBacklinks(target) {
+  const from = [];
+  for (const [p, text] of contentCache) {
+    if (p === target || p.split("/").pop().startsWith("_")) continue;
+    for (const m of (text || "").matchAll(/\[\[([^\]]+)\]\]/g))
+      if (resolveWiki(m[1]) === target) { from.push(p); break; }
+  }
+  return from.sort();
 }
 function resolveWiki(w) {
   w = w.trim();
@@ -710,6 +758,12 @@ function drawGraph() {
     }
     ctx.fillStyle = pal[n.layer];
     ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    if (staleSet.has(n.path)) {              // ⚠ as of last sync: dashed amber ring
+      ctx.strokeStyle = theme === "dark" ? "#d9a659" : "#c9862d";
+      ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.arc(x, y, r + 2.5, 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     if (gView.scale > 0.55 || hot.has(n) || nodeRadius(n) > 9) {
       ctx.fillStyle = css.getPropertyValue("--text");
       ctx.globalAlpha = dim ? 0.15 : (n === gHover ? 1 : 0.72);

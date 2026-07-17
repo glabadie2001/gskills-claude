@@ -47,10 +47,24 @@ main() {
     local memory_md="$mem_dir/MEMORY.md"
     [ -f "$memory_md" ] || exit 0    # no Engram here -> silent
 
-    # ---------- compact: reminder only ----------
+    # ---------- compact: reminder + today's journal tail ----------
     if [ "$source_val" = "compact" ]; then
         emit '## Engram: post-compaction check'
         emit 'Context was just compacted. Anything learned before compaction and not yet journaled is at risk of being lost. If there are unlogged milestones, dead ends, or decisions from earlier in this session, append a journal entry now (follow /mem-journal), then continue.'
+        # Re-inject the tail of today's journal: if a PreCompact capture hook just wrote
+        # a draft, this is what carries it into the post-compaction context.
+        local today_j="$mem_dir/journal/$(date '+%Y-%m-%d').md"
+        if [ -r "$today_j" ]; then
+            local jtail
+            jtail=$(tail -n 25 "$today_j" 2>/dev/null)
+            if [ -n "$jtail" ]; then
+                emit ''
+                emit "### Today's journal (tail)"
+                while IFS= read -r tl; do emit "$tl"; done <<EOF_JTAIL
+$jtail
+EOF_JTAIL
+            fi
+        fi
         flush_and_exit
     fi
 
@@ -144,6 +158,7 @@ EOF_JFILES
         cards=$(ls -1 "$atlas_dir"/*.md 2>/dev/null | grep -v '/_[^/]*$')
         if [ -n "$cards" ]; then
             local stale_list="" checked=0 card fm module verified paths behind
+            local recent_mods=() recent_paths=()
             while IFS= read -r card; do
                 [ -r "$card" ] || continue
                 # Frontmatter = lines between the first pair of '---' fences.
@@ -168,6 +183,8 @@ EOF_JFILES
                 done <<EOF_PATHS
 $paths
 EOF_PATHS
+                recent_mods+=("$module")
+                recent_paths+=("$paths")
                 case "$verified" in
                     ""|0000000*)
                         stale_list="${stale_list:+$stale_list, }$module (unknown baseline)"
@@ -201,6 +218,35 @@ EOF_CARDS
                 else
                     emit "STALE cards - consider /mem-sync: $stale_list"
                 fi
+            fi
+
+            # ----- Recent activity: commits in the last 24h touching each card's paths -----
+            # Reuses the cards parsed above (module + paths); omit the section entirely
+            # when nothing changed (silence beats noise). Same silent-failure discipline.
+            local recent_line="" ri=0 rmod rpaths rn runit
+            while [ "$ri" -lt "${#recent_mods[@]}" ]; do
+                rmod="${recent_mods[$ri]}"
+                rpaths="${recent_paths[$ri]}"
+                ri=$((ri + 1))
+                local rpatharr=() rp
+                while IFS= read -r rp; do
+                    [ -n "$rp" ] && rpatharr+=("$rp")
+                done <<EOF_RPATHS
+$rpaths
+EOF_RPATHS
+                [ "${#rpatharr[@]}" -gt 0 ] || continue
+                local rlog
+                rlog=$(git -C "$root" log --oneline --since=24.hours -- "${rpatharr[@]}" 2>/dev/null) || continue
+                rn=$(printf '%s' "$rlog" | grep -c '.' 2>/dev/null)
+                [ -n "$rn" ] || rn=0
+                if [ "$rn" -gt 0 ] 2>/dev/null; then
+                    if [ "$rn" -eq 1 ]; then runit="commit"; else runit="commits"; fi
+                    recent_line="${recent_line:+$recent_line, }$rmod ($rn $runit)"
+                fi
+            done
+            if [ -n "$recent_line" ]; then
+                emit '### Recent activity (24h)'
+                emit "$recent_line"
             fi
         fi
     fi

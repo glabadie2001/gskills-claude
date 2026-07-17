@@ -1,5 +1,5 @@
 {
-  "_comment": "Engram hooks fragment. ONE cross-platform SessionStart entry, grafted into the target's .claude/settings.json by both installers: shell 'bash' runs via Git Bash on Windows (ships with Git for Windows, which Engram requires anyway) and native bash on macOS/Linux, so the committed settings.json works for the whole team. PowerShell-only fallback (no Git Bash): replace command with  powershell -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR/.claude/hooks/engram-brief.ps1\"  and shell with 'powershell'. Note: ${CLAUDE_PROJECT_DIR} is expanded by the hook's shell from the environment - PowerShell syntax needs $env:, bash needs $ or ${}.",
+  "_comment": "Engram hooks fragment. ONE cross-platform SessionStart entry, grafted into the target's .claude/settings.json by both installers: shell 'bash' runs via Git Bash on Windows (ships with Git for Windows, which Engram requires anyway) and native bash on macOS/Linux, so the committed settings.json works for the whole team. PowerShell-only fallback (no Git Bash): replace command with  powershell -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR/.claude/hooks/engram-brief.ps1\"  and shell with 'powershell'. Note: ${CLAUDE_PROJECT_DIR} is expanded by the hook's shell from the environment - PowerShell syntax needs $env:, bash needs $ or ${}. The '_autocapture_hooks' key below is OPT-IN documentation/data for the installer ONLY - it is NOT part of the default merge. Re-run the installer with -AutoCapture / --auto-capture to graft those two entries into hooks.PreCompact and hooks.SessionEnd.",
   "hooks": {
     "SessionStart": [
       {
@@ -9,6 +9,34 @@
             "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-brief.sh\"",
             "shell": "bash",
             "timeout": 30
+          }
+        ]
+      }
+    ]
+  },
+  "_autocapture_hooks": {
+    "_comment": "OPT-IN, NOT merged by default. The installer grafts these two entries into hooks.PreCompact and hooks.SessionEnd only when run with -AutoCapture / --auto-capture. Both draft a journal entry from the session transcript via headless Claude (engram-capture). PreCompact is synchronous (timeout 180) so compaction waits for the draft - that is the point. SessionEnd is async with a longer timeout (300) so it never blocks CLI exit.",
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-capture.sh\"",
+            "shell": "bash",
+            "timeout": 180
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-capture.sh\"",
+            "shell": "bash",
+            "timeout": 300,
+            "async": true
           }
         ]
       }

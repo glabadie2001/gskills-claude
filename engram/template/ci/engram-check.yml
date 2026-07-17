@@ -1,0 +1,141 @@
+# Engram memory check -- copy this file to .github/workflows/engram-check.yml in your repo.
+#
+# On every pull request this runs the deterministic Engram linter and surfaces the
+# results in the job's Step Summary. It NEVER comments on the PR or calls the GitHub
+# API, so it needs no elevated permissions and works on forked-PR runs (zero-trust).
+#
+# Assumptions:
+#   - Engram is installed under .claude/ (linter at .claude/scripts/engram-lint.sh).
+#   - The linter and memory are committed to the repo (the Engram installer does this).
+#   - Runner is ubuntu-latest, which ships bash, git and jq preinstalled.
+#
+# Customize (search for "CUSTOMIZE"):
+#   - Restrict when the workflow runs with the `paths:` filter below.
+#   - Make lint advisory instead of blocking by deleting the final `exit 1`.
+
+name: Engram memory check
+
+on:
+  pull_request:
+    # CUSTOMIZE: uncomment to only run when memory or source could have changed.
+    # paths:
+    #   - '.claude/**'
+    #   - 'src/**'
+
+# Least privilege: we only read the checkout and write the run's Step Summary.
+permissions:
+  contents: read
+
+jobs:
+  engram:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for staleness + card coverage)
+        uses: actions/checkout@v4
+        with:
+          # Staleness (git log) and coverage (git diff) need real history --
+          # a shallow clone silently breaks both.
+          fetch-depth: 0
+
+      - name: Run Engram lint
+        id: lint
+        run: |
+          set -uo pipefail
+          SCRIPT=".claude/scripts/engram-lint.sh"
+          if [ ! -f "$SCRIPT" ]; then
+            echo "Engram linter not found at $SCRIPT -- is Engram installed?" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Capture JSON without aborting on the linter's non-zero (errors present) exit.
+          set +e
+          JSON="$(bash "$SCRIPT" --root . --json)"
+          set -e
+
+          ERRORS="$(printf '%s' "$JSON" | jq -r '.errors')"
+          WARNINGS="$(printf '%s' "$JSON" | jq -r '.warnings')"
+
+          # Findings table -> Step Summary (markdown; no PR comment, no API call).
+          {
+            echo "## Engram lint"
+            echo ""
+            echo "**${ERRORS} error(s), ${WARNINGS} warning(s)**"
+            echo ""
+            if [ "$(printf '%s' "$JSON" | jq -r '.findings | length')" -gt 0 ]; then
+              echo "| Level | Check | File | Message |"
+              echo "|-------|-------|------|---------|"
+              printf '%s' "$JSON" | jq -r '.findings[] | "| \(.level) | \(.check) | `\(.file)` | \(.message) |"'
+            else
+              echo "_No findings._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # CUSTOMIZE: block the PR on ERROR findings. Delete this block to make lint advisory.
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "Engram lint found ${ERRORS} error(s) -- see the Step Summary." >&2
+            exit 1
+          fi
+
+      - name: Card coverage (atlas cards this PR may have invalidated)
+        # Run even when lint failed, so authors still see which cards to review.
+        if: always()
+        run: |
+          set -uo pipefail
+          BASE="${{ github.base_ref }}"
+          # Ensure the base branch tip is available locally for the diff.
+          git fetch --no-tags origin "$BASE" 2>/dev/null || true
+
+          # Three-dot diff: files this PR branch changed since it forked from the base.
+          RANGE="origin/${BASE}...HEAD"
+          CHANGED="$(git diff --name-only "$RANGE" 2>/dev/null || true)"
+
+          {
+            echo ""
+            echo "## Card coverage"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$CHANGED" ]; then
+            echo "_No changed files detected for card coverage._" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            echo "Cards whose tracked paths this PR touches -- review and re-verify via /mem-sync:"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          ATLAS=".claude/memory/atlas"
+          FOUND=0
+          for card in "$ATLAS"/*.md; do
+            [ -f "$card" ] || continue
+            b="$(basename "$card")"
+            case "$b" in _*|INDEX-*) continue ;; esac
+
+            # Frontmatter must open with '---'; parse module / verified / paths.
+            head -1 "$card" | grep -q '^---[[:space:]]*$' || continue
+            fm="$(awk 'NR==1{next} /^---[[:space:]]*$/{exit} {print}' "$card")"
+            module="$(printf '%s\n' "$fm" | sed -n 's/^module:[[:space:]]*//p' | head -1 | sed 's/[[:space:]]*$//')"
+            [ -n "$module" ] || module="${b%.md}"
+            verified="$(printf '%s\n' "$fm" | sed -n 's/^verified:[[:space:]]*//p' | head -1 | awk '{print $1}')"
+            paths="$(printf '%s\n' "$fm" | awk '/^paths:[[:space:]]*$/{f=1;next} f && /^[[:space:]]+-[[:space:]]*/{sub(/^[[:space:]]+-[[:space:]]*/,""); gsub(/^["'\'']|["'\'']$/,""); print; next} f{f=0}')"
+            [ -n "$paths" ] || continue
+
+            # Does any of this card's globs intersect the PR's changed files?
+            hit=0
+            while IFS= read -r glob; do
+              [ -n "$glob" ] || continue
+              case "$glob" in *"{"*) continue ;; esac   # brace globs match nothing in git pathspec
+              d="$(git diff --name-only "$RANGE" -- "$glob" 2>/dev/null)"
+              [ -n "$d" ] && { hit=1; break; }
+            done < <(printf '%s\n' "$paths")
+
+            if [ "$hit" -eq 1 ]; then
+              FOUND=1
+              echo "- This PR touches paths covered by [[${module}]] (verified at ${verified:-unknown}) -- the card may need updating via /mem-sync." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          if [ "$FOUND" -eq 0 ]; then
+            echo "_No atlas cards cover the changed paths._" >> "$GITHUB_STEP_SUMMARY"
+          fi

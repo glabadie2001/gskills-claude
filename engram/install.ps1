@@ -11,7 +11,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Target,
 
-    [switch]$RefreshTooling
+    [switch]$RefreshTooling,
+
+    [switch]$AutoCapture
 )
 
 $ErrorActionPreference = 'Stop'
@@ -117,58 +119,106 @@ if ((Test-Path -LiteralPath $hooksSource -PathType Container) -and
 
 # ---------- 4. merge hooks into settings.json ----------
 $fragPath = Join-Path $templateDir 'settings-fragment.json'
+
+# Graft a single hook-group entry into settings.hooks.<evt>, guarding the
+# well-formedness (array of objects) and staying idempotent via a command marker.
+# Returns 'added', 'present', or 'invalid'.
+function Add-EngramHookEntry($settingsObj, $evtName, $entry, $marker) {
+    if (-not $settingsObj.PSObject.Properties['hooks'] -or $null -eq $settingsObj.hooks) {
+        $settingsObj | Add-Member -MemberType NoteProperty -Name 'hooks' -Value (New-Object PSObject) -Force
+    }
+    if (-not $settingsObj.hooks.PSObject.Properties[$evtName] -or $null -eq $settingsObj.hooks.$evtName) {
+        $settingsObj.hooks | Add-Member -MemberType NoteProperty -Name $evtName -Value @() -Force
+    }
+    $existingArr = @($settingsObj.hooks.$evtName) | Where-Object { $null -ne $_ }
+    $existingJson = ''
+    try { $existingJson = [string]($settingsObj.hooks.$evtName | ConvertTo-Json -Depth 50) } catch { }
+    if ($existingJson -and $existingJson.IndexOf($marker) -ge 0) { return 'present' }
+    # Guard: a string or other non-object shape is an unsupported/legacy config we must not corrupt.
+    $invalid = $false
+    foreach ($e in $existingArr) {
+        if ($e -isnot [System.Management.Automation.PSCustomObject]) { $invalid = $true }
+    }
+    if ($invalid) { return 'invalid' }
+    $settingsObj.hooks.$evtName = @($existingArr) + @(, $entry)
+    return 'added'
+}
+
 try {
     $frag = Get-Content -LiteralPath $fragPath -Raw | ConvertFrom-Json
     $engramEntry = $frag.hooks.SessionStart[0]
+    $preCompactEntry = $null
+    $sessionEndEntry = $null
+    if ($frag.PSObject.Properties['_autocapture_hooks'] -and $frag._autocapture_hooks) {
+        if ($frag._autocapture_hooks.PSObject.Properties['PreCompact']) { $preCompactEntry = $frag._autocapture_hooks.PreCompact[0] }
+        if ($frag._autocapture_hooks.PSObject.Properties['SessionEnd']) { $sessionEndEntry = $frag._autocapture_hooks.SessionEnd[0] }
+    }
 
     if (-not (Test-Path -LiteralPath $settingsPath)) {
         # Fresh settings.json: just the hooks block (no _comment).
         $settings = New-Object PSObject
-        $hooksObj = New-Object PSObject
-        $hooksObj | Add-Member -MemberType NoteProperty -Name 'SessionStart' -Value @(, $engramEntry)
-        $settings | Add-Member -MemberType NoteProperty -Name 'hooks' -Value $hooksObj
+        [void](Add-EngramHookEntry $settings 'SessionStart' $engramEntry 'engram-brief')
+        if ($AutoCapture) {
+            if ($preCompactEntry) { [void](Add-EngramHookEntry $settings 'PreCompact' $preCompactEntry 'engram-capture') }
+            if ($sessionEndEntry) { [void](Add-EngramHookEntry $settings 'SessionEnd' $sessionEndEntry 'engram-capture') }
+        }
         $json = $settings | ConvertTo-Json -Depth 50
         [System.IO.File]::WriteAllText($settingsPath, $json, $utf8NoBom)
-        Write-Step "settings: wrote fresh .claude\settings.json with the Engram SessionStart hook."
+        if ($AutoCapture) {
+            Write-Step "settings: wrote fresh .claude\settings.json with Engram SessionStart + auto-capture (PreCompact + SessionEnd) hooks."
+        } else {
+            Write-Step "settings: wrote fresh .claude\settings.json with the Engram SessionStart hook."
+        }
     } else {
         $rawSettings = Get-Content -LiteralPath $settingsPath -Raw
         $settings = $null
         try { $settings = $rawSettings | ConvertFrom-Json } catch { $settings = $null }
         if ($null -eq $settings) {
-            Write-Warning "Could not parse existing .claude\settings.json - NOT modifying it. Merge this into hooks.SessionStart manually:"
+            Write-Warning "Could not parse existing .claude\settings.json - NOT modifying it. Merge this into hooks manually:"
             Write-Host ((Get-Content -LiteralPath $fragPath -Raw))
         } else {
-            if (-not $settings.PSObject.Properties['hooks'] -or $null -eq $settings.hooks) {
-                $settings | Add-Member -MemberType NoteProperty -Name 'hooks' -Value (New-Object PSObject) -Force
-            }
-            if (-not $settings.hooks.PSObject.Properties['SessionStart'] -or $null -eq $settings.hooks.SessionStart) {
-                $settings.hooks | Add-Member -MemberType NoteProperty -Name 'SessionStart' -Value @() -Force
-            }
-            # Guard: only graft into a well-formed SessionStart (array of objects).
-            # A string or other shape means an unsupported/legacy config we must not corrupt.
-            $ssExisting = @($settings.hooks.SessionStart) | Where-Object { $null -ne $_ }
-            $ssInvalid = $false
-            foreach ($e in $ssExisting) {
-                if ($e -isnot [System.Management.Automation.PSCustomObject]) { $ssInvalid = $true }
-            }
-            $existingJson = ''
-            try { $existingJson = [string]($settings.hooks.SessionStart | ConvertTo-Json -Depth 50) } catch { }
-            if ($existingJson -and $existingJson.IndexOf('engram-brief') -ge 0) {
-                Write-Step "settings: Engram hook already registered - settings.json unchanged."
-            } elseif ($ssInvalid) {
-                Write-Warning "existing hooks.SessionStart has an unsupported shape (non-object entries) - NOT modifying settings.json. Add this entry to the SessionStart array manually:"
+            $changed = $false
+
+            $r1 = Add-EngramHookEntry $settings 'SessionStart' $engramEntry 'engram-brief'
+            if ($r1 -eq 'added') {
+                $changed = $true
+                Write-Step "settings: appended Engram SessionStart hook to existing settings.json."
+            } elseif ($r1 -eq 'present') {
+                Write-Step "settings: Engram SessionStart hook already registered - unchanged."
+            } elseif ($r1 -eq 'invalid') {
+                Write-Warning "existing hooks.SessionStart has an unsupported shape (non-object entries) - NOT modifying it. Add this entry to the SessionStart array manually:"
                 Write-Host ((Get-Content -LiteralPath $fragPath -Raw))
-            } else {
-                $settings.hooks.SessionStart = @($ssExisting) + @(, $engramEntry)
+            }
+
+            if ($AutoCapture) {
+                foreach ($pair in @(@('PreCompact', $preCompactEntry), @('SessionEnd', $sessionEndEntry))) {
+                    $evt = $pair[0]; $ent = $pair[1]
+                    if (-not $ent) { continue }
+                    $rc = Add-EngramHookEntry $settings $evt $ent 'engram-capture'
+                    if ($rc -eq 'added') {
+                        $changed = $true
+                        Write-Step "settings: appended Engram auto-capture $evt hook to existing settings.json."
+                    } elseif ($rc -eq 'present') {
+                        Write-Step "settings: Engram auto-capture $evt hook already registered - unchanged."
+                    } elseif ($rc -eq 'invalid') {
+                        Write-Warning "existing hooks.$evt has an unsupported shape - NOT modifying it. Add the $evt entry from template\settings-fragment.json (_autocapture_hooks) manually."
+                    }
+                }
+            }
+
+            if ($changed) {
                 $json = $settings | ConvertTo-Json -Depth 50
                 [System.IO.File]::WriteAllText($settingsPath, $json, $utf8NoBom)
-                Write-Step "settings: appended Engram SessionStart hook to existing settings.json."
             }
         }
     }
 } catch {
     Write-Warning ("settings merge failed: " + $_.Exception.Message)
     Write-Warning "Merge template\settings-fragment.json into <target>\.claude\settings.json manually."
+}
+
+if (-not $AutoCapture) {
+    Write-Host "Auto-capture available: re-run with -AutoCapture to enable transcript-draft journaling (PreCompact + SessionEnd)."
 }
 
 # ---------- 5. CLAUDE.md ----------
@@ -192,6 +242,26 @@ try {
     }
 } catch {
     Write-Warning ("CLAUDE.md update failed: " + $_.Exception.Message)
+}
+
+# ---------- 6. journal union-merge (prevents same-day merge conflicts in teams) ----------
+try {
+    $gaPath = Join-Path $Target '.gitattributes'
+    $gaExisting = ''
+    if (Test-Path -LiteralPath $gaPath) { $gaExisting = [System.IO.File]::ReadAllText($gaPath) }
+    if ($gaExisting.IndexOf('.claude/memory/journal/') -lt 0) {
+        $gaBlock = "# Engram: journals are append-only; union-merge prevents same-day conflicts`n" +
+                   ".claude/memory/journal/*.md merge=union`n" +
+                   ".claude/memory/journal/archive/*.md merge=union`n"
+        $gaSep = ''
+        if ($gaExisting.Length -gt 0 -and -not $gaExisting.EndsWith("`n")) { $gaSep = "`n" }
+        [System.IO.File]::WriteAllText($gaPath, $gaExisting + $gaSep + $gaBlock, $utf8NoBom)
+        Write-Step ".gitattributes: journal union-merge rules added."
+    } else {
+        Write-Step ".gitattributes: journal merge rules already present - unchanged."
+    }
+} catch {
+    Write-Warning (".gitattributes update failed: " + $_.Exception.Message)
 }
 
 # ---------- summary ----------
