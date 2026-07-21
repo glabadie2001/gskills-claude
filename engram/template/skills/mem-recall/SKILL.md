@@ -18,7 +18,7 @@ Prefer memory plus targeted verification over full code re-exploration. Read cod
 ## Procedure
 
 1. **Index.** Read `.claude/memory/MEMORY.md`. From its Atlas table, pick candidate cards for the question. If a row is an area (`[[INDEX-<area>]]`), read that index file and pick candidates from its table — climb master → area → card; read only the cards you shortlist. A system-shape question ("how do the pieces fit", "what talks to what") → also read `architecture.md`: its Live diagram is the map, and its frontmatter gets the same freshness check as a card (step 4).
-2. **Search.** Grep `.claude/memory/` for keywords from the question — ALL layers: `atlas/`, `journal/` (including `journal/archive/`), `decisions/`, `gotchas.md`, `tasks.md`. Journal dead-ends and ADRs often hold the "why" that cards don't.
+2. **Search.** Grep `.claude/memory/` for keywords from the question — ALL layers: `atlas/`, `journal/` (including `journal/archive/`), `decisions/`, `gotchas.md`, `tasks.md`, plus any module layers present (e.g. bug-sweep's `bug-classes.md` and `sweeps/` campaign ledger + archived review artifacts). Journal dead-ends and ADRs often hold the "why" that cards don't.
 3. **Read.** Read the matched atlas cards and the journal/decision hits.
 4. **Freshness check** — for EVERY card the answer will rely on:
    - Parse the card's frontmatter: `verified` (short sha) and `paths` (globs).

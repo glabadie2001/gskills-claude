@@ -43,12 +43,29 @@ Facts are stored by *how fast they change*, because that determines the write di
     archive/YYYY-MM.md   # monthly digests of compacted journals
 ```
 
+Opt-in **modules** (`modules/` in the engine; applied with `--modules <name>`,
+additive and never clobbering) compose extra layers onto that core. The
+**bug-sweep** module adds:
+
+```
+  bug-classes.md     # reviewer taxonomy     (accumulating; observed bug classes + hunt heuristics)
+  sweeps/            # review campaign       (append-only ledger; INDEX.md is the sole entry point)
+    INDEX.md         #   one row per adversarial round / class sweep / arch review
+    artifacts/       #   frozen prompt+findings files, sweep scripts, result JSONs
+```
+
+Modules are self-describing (conventions live in the copied files, not the
+tooling) and core tooling is module-aware but degrades to a no-op without
+them — the contract is in `modules/README.md`.
+
 **Single-home rubric:** Is it about what the code *is*? → atlas. The *system-level shape*
 (module boundaries, what talks to what, where the architecture should head)? →
 architecture.md. About *why* a choice was made? → decision. A trap that will bite again?
 → gotcha (module-specific traps go in that module's atlas card; cross-cutting ones in
-gotchas.md). Something *to do*? → task. Everything else — narrative, progress, dead
-ends — is journal.
+gotchas.md). Something *to do*? → task. With the bug-sweep module: a bug *class* an
+adversarial review exposed (with its hunt heuristic)? → bug-classes.md; a review
+round's prompt/findings and its verdict trail? → sweeps/ (INDEX.md row + frozen
+files in artifacts/). Everything else — narrative, progress, dead ends — is journal.
 
 ### MEMORY.md (the index)
 

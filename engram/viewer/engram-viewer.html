@@ -330,7 +330,8 @@ async function walk(dir, prefix, out, depth) {
     if (name.startsWith(".")) continue;
     const p = prefix ? prefix + "/" + name : name;
     if (h.kind === "directory") await walk(h, p, out, depth + 1);
-    else if (name.endsWith(".md")) {
+    else if (name.endsWith(".md") ||
+             (p.startsWith("sweeps/") && /\.(txt|js|json)$/.test(name))) {
       try {
         const f = await h.getFile();
         if (f.size < 1_000_000) out.set(p, { handle: h, mtime: f.lastModified, size: f.size });
@@ -387,7 +388,7 @@ async function poll(first) {
 
 /* ---------- sidebar tree ---------- */
 function group() {
-  const g = { top: [], atlas: [], journal: [], archive: [], decisions: [] };
+  const g = { top: [], atlas: [], journal: [], archive: [], decisions: [], sweeps: [] };
   for (const p of [...files.keys()].sort()) {
     const base = p.split("/").pop();
     if (base.startsWith("_")) continue;                       // format templates
@@ -395,6 +396,7 @@ function group() {
     else if (p.startsWith("journal/archive/")) g.archive.push(p);
     else if (p.startsWith("journal/")) g.journal.push(p);
     else if (p.startsWith("decisions/")) g.decisions.push(p);
+    else if (p.startsWith("sweeps/")) g.sweeps.push(p);
     else g.top.push(p);
   }
   g.journal.sort().reverse(); g.archive.sort().reverse();     // newest first
@@ -432,6 +434,7 @@ function renderTree() {
   sect("Journal", g.journal);
   sect("Journal archive", g.archive);
   sect("Decisions", g.decisions);
+  sect("Sweeps · " + g.sweeps.length, g.sweeps);
 }
 $("filter").oninput = renderTree;
 setInterval(renderTree, 3000); // keep "ago" labels & pings fresh
@@ -451,7 +454,7 @@ async function readFile(p) {
   const info = files.get(p); if (!info) return null;
   try { return await (await info.handle.getFile()).text(); } catch { return null; }
 }
-async function openFile(p) {
+async function openFile(p, frag) {
   const text = await readFile(p); if (text === null) return;
   setMode("doc");
   openPath = p; openText = text;
@@ -460,6 +463,10 @@ async function openFile(p) {
   renderDoc(p, text);
   renderTree();
   $("main").scrollTop = 0;
+  if (frag) {
+    const el = document.getElementById(frag) || document.getElementById(slugify(frag));
+    if (el) el.scrollIntoView({ block: "start" });
+  }
 }
 
 /* ---------- native line diff (LCS with prefix/suffix trim) ---------- */
@@ -549,10 +556,17 @@ function splitFrontmatter(text) {
   return { fm, body: text.slice(m[0].length) };
 }
 function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function slugify(s) {  // GitHub-style heading anchor
+  return s.toLowerCase().replace(/`/g, "")
+    .replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s+/g, "-");
+}
 function inline(s) {
   s = esc(s);
   s = s.replace(/`([^`]+)`/g, (_, c) => "<code>" + c + "</code>");
-  s = s.replace(/\[\[([^\]]+)\]\]/g, (_, w) => "<a class='wiki' data-wiki='" + w + "'>" + w + "</a>");
+  s = s.replace(/\[\[([^\]]+)\]\]/g, (_, w) => {
+    const disp = w.indexOf("|") >= 0 ? w.split("|").pop() : w;
+    return "<a class='wiki' data-wiki='" + w.replace(/'/g, "&#39;") + "'>" + disp + "</a>";
+  });
   s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
   s = s.replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>");
   s = s.replace(/~~([^~]+)~~/g, "<s>$1</s>");
@@ -584,7 +598,7 @@ function mdToHtml(md) {
     }
     if (/^\s*$/.test(l)) { flush(); i++; continue; }
     const h = l.match(/^(#{1,6})\s+(.*)$/);
-    if (h) { flush(); const n = h[1].length; html += "<h" + n + ">" + inline(h[2]) + "</h" + n + ">"; i++; continue; }
+    if (h) { flush(); const n = h[1].length; html += "<h" + n + " id='" + slugify(h[2]) + "'>" + inline(h[2]) + "</h" + n + ">"; i++; continue; }
     if (/^\s*(---+|\*\*\*+)\s*$/.test(l)) { flush(); html += "<hr>"; i++; continue; }
     if (/^>/.test(l)) {                                         // blockquote
       flush(); const q = [];
@@ -651,12 +665,30 @@ function renderDoc(p, text) {
     }
   }
   mgQueue = [];
+  if (!p.endsWith(".md")) {                                   // raw artifact (.txt/.js/.json)
+    const pre = document.createElement("pre"), code = document.createElement("code");
+    code.textContent = text;
+    pre.appendChild(code);
+    $("content").innerHTML = "";
+    $("content").appendChild(pre);
+    return;
+  }
   $("content").innerHTML = body.trim()
     ? mdToHtml(body)
     : "<div class='empty'>(empty file — waiting for Claude to write…)</div>";
   $("content").querySelectorAll("a.wiki").forEach(a => {
     const target = resolveWiki(a.dataset.wiki);
-    if (target) a.onclick = () => openFile(target); else a.classList.add("dead");
+    const frag = a.dataset.wiki.split("|")[0].split("#")[1] || "";
+    if (target) a.onclick = () => openFile(target, frag); else a.classList.add("dead");
+  });
+  $("content").querySelectorAll("a[href]").forEach(a => {     // relative md links open in-viewer
+    const href = a.getAttribute("href");
+    const target = resolveRel(p, href);
+    if (target) {
+      const frag = href.split("#")[1] || "";
+      a.removeAttribute("target");
+      a.onclick = e => { e.preventDefault(); openFile(target, frag); };
+    }
   });
   renderMermaidBlocks();
 }
@@ -677,19 +709,45 @@ function computeBacklinks(target) {
   const from = [];
   for (const [p, text] of contentCache) {
     if (p === target || p.split("/").pop().startsWith("_")) continue;
-    for (const m of (text || "").matchAll(/\[\[([^\]]+)\]\]/g))
-      if (resolveWiki(m[1]) === target) { from.push(p); break; }
+    if (linkTargets(p, text || "").includes(target)) from.push(p);
   }
   return from.sort();
 }
 function resolveWiki(w) {
-  w = w.trim();
+  w = w.split("|")[0].split("#")[0].trim();   // [[target#fragment|alias]] resolves by target
   if (files.has("atlas/" + w + ".md")) return "atlas/" + w + ".md";
   const adr = w.match(/^adr-?(\d+)$/i);
   if (adr) for (const p of files.keys())
     if (p.startsWith("decisions/") && p.split("/").pop().startsWith(adr[1].padStart(3, "0"))) return p;
   for (const p of files.keys()) if (p.split("/").pop() === w + ".md") return p;
   return null;
+}
+function resolveRel(from, target) {
+  // relative markdown link target -> in-memory path, or null (externals, anchors, misses)
+  if (!target || target.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(target)) return null;
+  target = target.split("#")[0].split("?")[0];
+  try { target = decodeURIComponent(target); } catch {}
+  const parts = from.split("/").slice(0, -1);
+  for (const seg of target.split("/")) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") { if (!parts.length) return null; parts.pop(); }
+    else parts.push(seg);
+  }
+  const p = parts.join("/");
+  return files.has(p) ? p : null;
+}
+function linkTargets(p, text) {
+  // every in-memory file this doc points at — [[wikilinks]] AND relative [md](links).
+  // Only .md files are link SOURCES (artifacts like sweep .js scripts contain [[ noise).
+  const out = [];
+  if (!p.endsWith(".md")) return out;
+  for (const m of text.matchAll(/\[\[([^\]]+)\]\]/g)) {
+    const t = resolveWiki(m[1]); if (t) out.push(t);
+  }
+  for (const m of text.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)) {
+    const t = resolveRel(p, m[1]); if (t) out.push(t);
+  }
+  return out;
 }
 
 /* ---------- in-place architecture graphs (```mermaid → interactive SVG) ----------
@@ -981,18 +1039,19 @@ function renderMermaidBlocks() {
 /* ---------- memory graph (Obsidian-style, canvas force layout) ---------- */
 const LAYER_COLORS = {
   light: { index: "#2f6f4f", atlas: "#4a7fbf", journal: "#c9862d", archive: "#b0ab9c",
-           decisions: "#9b6bbf", ledger: "#bf6b6b" },
+           decisions: "#9b6bbf", sweeps: "#3f8f8f", ledger: "#bf6b6b" },
   dark:  { index: "#6fbf95", atlas: "#7aa7d9", journal: "#d9a659", archive: "#6f6f66",
-           decisions: "#b58fd9", ledger: "#d98a8a" }
+           decisions: "#b58fd9", sweeps: "#6cc0c0", ledger: "#d98a8a" }
 };
 const LAYER_LABELS = { index: "Index", atlas: "Atlas", journal: "Journal",
-  archive: "Archive", decisions: "Decisions", ledger: "Tasks & gotchas" };
+  archive: "Archive", decisions: "Decisions", sweeps: "Sweeps", ledger: "Tasks & gotchas" };
 function layerOf(p) {
   if (p === "MEMORY.md") return "index";
   if (p.startsWith("journal/archive/")) return "archive";
   if (p.startsWith("journal/")) return "journal";
   if (p.startsWith("atlas/")) return "atlas";
   if (p.startsWith("decisions/")) return "decisions";
+  if (p.startsWith("sweeps/")) return "sweeps";
   return "ledger";
 }
 let gNodes = new Map(), gEdges = [], gAlpha = 0, gDirty = true, gRAF = null;
@@ -1012,9 +1071,8 @@ function buildGraph() {
   });
   const seen = new Set();
   for (const p of paths) {
-    for (const m of (contentCache.get(p) || "").matchAll(/\[\[([^\]]+)\]\]/g)) {
-      const t = resolveWiki(m[1]);
-      if (!t || t === p || !gNodes.has(t)) continue;
+    for (const t of linkTargets(p, contentCache.get(p) || "")) {
+      if (t === p || !gNodes.has(t)) continue;
       const key = p < t ? p + "|" + t : t + "|" + p;
       if (!seen.has(key)) { seen.add(key); gEdges.push([gNodes.get(p), gNodes.get(t)]); }
     }

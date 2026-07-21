@@ -31,12 +31,18 @@ tree full of unrelated uncommitted work you'd be racing against.
 2. Record HEAD SHA, branch, base ref, and `git status`. A dirty tree with
    changes unrelated to this round → stop and ask; Codex reviews the
    working tree and will report half-done work as bugs.
-3. Locate the **round ledger**: files matching `Codex_Prompt_*Round<N>*.md`
-   in CWD, the repo root, and the repo's parent directory. The ledger dir is
-   wherever they already live. Bootstrapping a first round: use the repo's
-   PARENT directory (outside the repo, so the review never reads its own
-   instructions), falling back to `<repo>/codex-reviews/` if the parent is
-   unsuitable.
+3. Locate the **round ledger**. If the repo has Engram memory with a
+   campaign ledger (`.claude/memory/sweeps/INDEX.md` — Engram's bug-sweep
+   module; if Engram is present WITHOUT it, mention that
+   `install.ps1 -Target <repo> -Modules bug-sweep` adds it), that is the ledger:
+   read its top table for the last round's number, prompt, and findings
+   (archived under `sweeps/artifacts/`). Otherwise fall back to loose files
+   matching `Codex_Prompt_*Round<N>*.md` in CWD, the repo root, and the
+   repo's parent directory — the ledger dir is wherever they already live.
+   Either way, the CURRENT round's prompt is STAGED outside the repo (the
+   repo's parent directory, falling back to `<repo>/codex-reviews/`) so the
+   review never reads its own instructions; it is archived only after the
+   round completes.
 
 ## Step 1 — Round prompt
 
@@ -131,9 +137,17 @@ failing gates twice → escalate one tier with the failure evidence.
 
 1. Journal the round if the project has persistent memory (e.g. Engram
    `/mem-journal`); add deferred items to its task ledger.
-2. Write the NEXT round's prompt file per Step 1's ledger rules — the round
-   is not closed until the next one is aimed.
-3. Report to the user, leading with the outcome: a findings table
+2. If the repo has an Engram campaign ledger (`.claude/memory/sweeps/`):
+   copy the round's prompt + findings into `sweeps/artifacts/`, append the
+   round's row to `sweeps/INDEX.md` with RELATIVE markdown links to both
+   artifacts and the journal day (an unlinked filename is a broken
+   hierarchy), and file any newly observed bug class — or new instance of a
+   known class — in `bug-classes.md` with its hunt heuristic. Record the fix
+   commit sha in the row once the user commits.
+3. Write the NEXT round's prompt file per Step 1's ledger rules — the round
+   is not closed until the next one is aimed. It stays STAGED outside the
+   repo until run (never pre-archive an un-run prompt).
+4. Report to the user, leading with the outcome: a findings table
    (# → severity → verdict → action → status), gate results, files
    changed, deferred list, and the path of the next-round prompt.
-4. Do NOT commit unless the user asked; NEVER push.
+5. Do NOT commit unless the user asked; NEVER push.

@@ -7,5 +7,5 @@
 <!-- Example:
 - **2026-01-01** — `npm test` silently skips suites whose filename has a space; CI
   uses a different glob and runs them. Rule: no spaces in test filenames. (found via
-  [[ci]], journal 2026-01-01)
+  `[[ci]]`, journal 2026-01-01)
 -->

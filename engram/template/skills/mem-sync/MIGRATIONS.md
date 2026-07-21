@@ -1,6 +1,6 @@
 # Engram migrations
 
-**Current tooling version: 4.** The installed memory's version lives at
+**Current tooling version: 5.** The installed memory's version lives at
 `.claude/memory/VERSION` (one integer; **missing file = version 1**). /mem-sync compares
 that number against the version above and applies each `## vN → vN+1` section below in
 order, writing the new number to VERSION after each section completes and appending a
@@ -123,3 +123,40 @@ Migrations touch structure and metadata only. They NEVER rewrite journal entries
 4. **Forward-only** — never backfill Target intent you didn't witness: the Target starts
    unset and only an explicit `/mem-arch target` conversation sets it. The Gaps section
    stays `- *(target not set)*` until then.
+
+## v4 → v5 (composable modules; bug-sweep extracted from core)
+
+The adversarial-review campaign schema (`sweeps/` ledger + `bug-classes.md`
+taxonomy) is now the opt-in **bug-sweep module** (engine repo:
+`modules/bug-sweep/`), applied via the installer's `-Modules bug-sweep` /
+`--modules bug-sweep` flag — additive, never clobbers, works on existing
+installs. This hop only reconciles memories that already carry the schema:
+
+1. **Module already adopted?** If `sweeps/INDEX.md` or `bug-classes.md` exists
+   (pioneered ad-hoc or installed earlier):
+   - Ensure `sweeps/artifacts/` exists.
+   - If ONE of the two module files is missing, add it by re-running the module
+     installer against this repo (`install.ps1 -Target <repo> -Modules bug-sweep`
+     from the engine checkout — the same checkout this tooling refresh came from).
+   - Ensure MEMORY.md's "Where everything lives" carries both module bullets AS
+     MARKDOWN LINKS. A backtick-only bullet (`` `bug-classes.md` ``,
+     `` `sweeps/INDEX.md` ``) counts as present but unlinked: convert just its
+     path token to `[bug-classes](bug-classes.md)` / `[sweeps/INDEX](sweeps/INDEX.md)`,
+     keeping the project's own wording. Missing entirely → the module installer's
+     snippet step adds them.
+
+2. **Loose ad-hoc campaign artifacts but no module?** If review artifacts exist
+   outside memory (e.g. `Codex_Prompt_*` / `*_Findings_*` / `*_VERIFIED*` in the
+   repo root or its parent) without `sweeps/`, tell the user the bug-sweep module
+   gives them a canonical durable home and offer the module install plus
+   archiving. Copy, never move, without explicit approval; a prompt for a round
+   that has NOT run yet stays outside the repo (a working-tree review must never
+   read its own instructions).
+
+3. **Neither?** No action — this hop changes nothing for memories without a
+   campaign. Note the module's availability in the migration journal entry.
+
+4. **Linking convention (forward-only)** — new ledger rows link artifacts and
+   journal days with RELATIVE markdown links and cite class ids from
+   `bug-classes.md`; never rewrite existing rows to conform.
+

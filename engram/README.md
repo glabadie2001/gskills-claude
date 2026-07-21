@@ -25,6 +25,13 @@ An *engram* is the physical trace a memory leaves in a brain. This is that, for 
   gotchas.md           # cross-cutting traps
 ```
 
+Opt-in **modules** (see `modules/README.md`) compose extra memory layers onto this
+core without touching what's there — install with `--modules <name>`. First module,
+**bug-sweep**: an adversarial-review campaign ledger (`sweeps/INDEX.md` + a durable
+`sweeps/artifacts/` archive of every round's prompt/findings/sweep scripts) and a
+`bug-classes.md` taxonomy of the bug classes reviews have exposed, with hunt
+heuristics. Driven end-to-end by the `/codex-review` skill.
+
 Plus six skills and a session-start hook:
 
 | Piece | Job |
@@ -66,12 +73,12 @@ pulse in place, so in graph view you can watch activity ripple through the memor
 ## Install
 
 ```powershell
-# Windows
-.\install.ps1 -Target C:\path\to\your\repo
+# Windows                                  (add opt-in modules with -Modules)
+.\install.ps1 -Target C:\path\to\your\repo [-Modules bug-sweep]
 ```
 ```bash
-# macOS / Linux
-./install.sh /path/to/your/repo
+# macOS / Linux                            (add opt-in modules with --modules)
+./install.sh /path/to/your/repo [--modules bug-sweep]
 ```
 
 Then open Claude Code in the target repo and run `/mem-init` once. That's the whole setup.
@@ -86,6 +93,8 @@ one registration then covers every Engram-fied repo on the machine. If you alrea
 have a status line configured, it is left untouched and the installer prints the
 one-line swap instead. The installer is idempotent and will **never overwrite an
 existing memory** (`-RefreshTooling` updates skills/hooks/status line only).
+Modules obey the same contract: `-Modules <name>` on an existing install adds only
+what's missing (files + MEMORY.md bullets) and touches nothing else — safe to re-run.
 
 **Upgrading:** Engram memory is versioned (`.claude/memory/VERSION`; a missing file
 means v1). After refreshing tooling on an existing install, run `/mem-sync` — it

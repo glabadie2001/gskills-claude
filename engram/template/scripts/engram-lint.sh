@@ -328,6 +328,8 @@ si=0
 while [ "$si" -lt "${#scan_files[@]}" ]; do
     f="${scan_files[$si]}"; si=$((si + 1))
     rel=$(rel_path "$f")
+    cand=$(grep -F '[[' "$f" 2>/dev/null)   # pre-filter: skip lines without wikilinks (perf)
+    [ -n "$cand" ] || continue
     while IFS= read -r line || [ -n "$line" ]; do
         scan=$(printf '%s' "$line" | sed "s/$bt[^$bt]*$bt/ /g")
         links=$(printf '%s\n' "$scan" | grep -oE '\[\[[^]]+\]\]' 2>/dev/null)
@@ -345,7 +347,9 @@ while [ "$si" -lt "${#scan_files[@]}" ]; do
         done <<EOF
 $links
 EOF
-    done < "$f"
+    done <<EOF2
+$cand
+EOF2
 done
 
 # ---------- 7. unsigned-entry (journal/YYYY-MM-DD.md headlines) ----------
@@ -435,5 +439,45 @@ EOF
         add_finding WARN over-budget "$rel" "architecture.md is $al lines (budget 120)"
     fi
 fi
+
+# ---------- 9. dead-mdlink (relative markdown links must resolve on disk) ----------
+# ERROR under sweeps/ (an unlinked/broken artifact breaks the campaign hierarchy),
+# WARN elsewhere. Skipped: sweeps/artifacts/ (frozen historical records), #anchors,
+# and any target containing ':' (URL schemes, drive letters, file.ts:63 citations);
+# inline code is stripped.
+si=0
+while [ "$si" -lt "${#scan_files[@]}" ]; do
+    f="${scan_files[$si]}"; si=$((si + 1))
+    rel=$(rel_path "$f")
+    case "$rel" in *'/sweeps/artifacts/'*) continue ;; esac
+    fdir=$(dirname "$f")
+    cand=$(grep -F '](' "$f" 2>/dev/null)   # pre-filter: skip lines without md links (perf)
+    [ -n "$cand" ] || continue
+    while IFS= read -r line || [ -n "$line" ]; do
+        scan=$(printf '%s' "$line" | sed "s/$bt[^$bt]*$bt/ /g")
+        links=$(printf '%s\n' "$scan" | grep -oE '\]\([^)[:space:]]+\)' 2>/dev/null)
+        [ -n "$links" ] || continue
+        while IFS= read -r lk; do
+            [ -n "$lk" ] || continue
+            target="${lk#](}"
+            target="${target%)}"
+            case "$target" in
+                '#'*|*:*) continue ;;
+            esac
+            target="${target%%#*}"
+            [ -n "$target" ] || continue
+            if [ ! -e "$fdir/$target" ]; then
+                case "$rel" in
+                    *'/sweeps/'*) add_finding ERROR dead-mdlink "$rel" "relative link resolves to nothing: $target" ;;
+                    *)            add_finding WARN dead-mdlink "$rel" "relative link resolves to nothing: $target" ;;
+                esac
+            fi
+        done <<EOF
+$links
+EOF
+    done <<EOF2
+$cand
+EOF2
+done
 
 emit_and_exit

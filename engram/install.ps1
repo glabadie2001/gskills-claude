@@ -1,7 +1,11 @@
 # install.ps1 -- Install the Engram memory engine into a target project.
 #
 # Usage:
-#   powershell -NoProfile -File install.ps1 -Target C:\path\to\project [-RefreshTooling]
+#   powershell -NoProfile -File install.ps1 -Target C:\path\to\project [-RefreshTooling] [-Modules bug-sweep]
+#
+# -Modules applies opt-in modules (see modules\README.md): additive and
+# idempotent, so it also works on an EXISTING install (memory otherwise
+# untouched; without -RefreshTooling, tooling is untouched too).
 #
 # Windows PowerShell 5.1 compatible (no ??, no ternary, no -AsHashtable).
 # NOTE: source is kept pure ASCII so PS 5.1 reads it correctly without a BOM.
@@ -13,7 +17,9 @@ param(
 
     [switch]$RefreshTooling,
 
-    [switch]$AutoCapture
+    [switch]$AutoCapture,
+
+    [string[]]$Modules = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,10 +56,83 @@ $skillsTarget = Join-Path $claudeDir 'skills'
 $hooksTarget  = Join-Path $claudeDir 'hooks'
 $settingsPath = Join-Path $claudeDir 'settings.json'
 
+# ---------- modules: normalize + applier ----------
+$Modules = @($Modules | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
+# Apply one module (see modules\README.md): copy its memory fragment without
+# ever clobbering existing paths, then add its MEMORY.md bullets if absent.
+function Install-EngramModule($name) {
+    $modDir = Join-Path (Join-Path $engineRoot 'modules') $name
+    if (-not (Test-Path -LiteralPath $modDir -PathType Container)) {
+        Write-Warning "module '$name' not found under modules\ - skipped."
+        return
+    }
+    $fragDir = Join-Path $modDir 'memory'
+    $added = 0; $kept = 0
+    if (Test-Path -LiteralPath $fragDir -PathType Container) {
+        foreach ($d in @(Get-ChildItem -LiteralPath $fragDir -Recurse -Directory -Force)) {
+            $rel = $d.FullName.Substring($fragDir.Length).TrimStart('\', '/')
+            $destDir = Join-Path $memTarget $rel
+            if (-not (Test-Path -LiteralPath $destDir)) {
+                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+            }
+        }
+        foreach ($f in @(Get-ChildItem -LiteralPath $fragDir -Recurse -File -Force)) {
+            $rel = $f.FullName.Substring($fragDir.Length).TrimStart('\', '/')
+            $dest = Join-Path $memTarget $rel
+            if (Test-Path -LiteralPath $dest) { $kept++; continue }
+            $destDir = Split-Path -Parent $dest
+            if (-not (Test-Path -LiteralPath $destDir)) {
+                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+            }
+            Copy-Item -LiteralPath $f.FullName -Destination $dest
+            $added++
+        }
+    }
+    Write-Step "module ${name}: $added file(s) added, $kept already present (never clobbered)."
+    $snipPath = Join-Path $modDir 'MEMORY-snippet.md'
+    $memoryMdPath = Join-Path $memTarget 'MEMORY.md'
+    if ((Test-Path -LiteralPath $snipPath) -and (Test-Path -LiteralPath $memoryMdPath)) {
+        $snip = [System.IO.File]::ReadAllText($snipPath)
+        $marker = ''
+        $mm = [regex]::Match($snip, '\]\(([^)\s]+)\)')
+        if ($mm.Success) { $marker = $mm.Groups[1].Value }
+        $content = [System.IO.File]::ReadAllText($memoryMdPath)
+        if ($marker -and $content.IndexOf($marker) -ge 0) {
+            Write-Step "module ${name}: MEMORY.md bullets already present - unchanged."
+        } else {
+            $snipT = $snip.TrimEnd() + "`n"
+            $lines = $content -split "`r?`n"
+            $skillsIdx = -1
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                if ($lines[$i] -match '^Skills:') { $skillsIdx = $i; break }
+            }
+            if ($skillsIdx -gt 0) {
+                $before = ($lines[0..($skillsIdx - 1)] -join "`n").TrimEnd()
+                $after = $lines[$skillsIdx..($lines.Count - 1)] -join "`n"
+                $newContent = $before + "`n" + $snipT + "`n" + $after
+            } else {
+                $newContent = $content.TrimEnd() + "`n`n" + $snipT
+            }
+            [System.IO.File]::WriteAllText($memoryMdPath, $newContent, $utf8NoBom)
+            Write-Step "module ${name}: MEMORY.md 'Where everything lives' bullets added."
+        }
+    }
+}
+
 # ---------- never clobber memory ----------
 $memoryPresent = Test-Path -LiteralPath (Join-Path $memTarget 'MEMORY.md')
 if ($memoryPresent -and -not $RefreshTooling) {
-    Write-Host "Engram already installed (memory present) - refusing to touch .claude/memory. Use -RefreshTooling to refresh skills/hooks/settings/CLAUDE.md (memory is never touched)."
+    if ($Modules.Count -gt 0) {
+        # Module-only application onto an existing install: memory is only
+        # ever ADDED to (the applier never clobbers), tooling untouched.
+        Write-Step "memory present - applying module(s) only; tooling untouched."
+        foreach ($m in $Modules) { Install-EngramModule $m }
+        Write-Host ""
+        Write-Host "Module application complete. Memory and tooling otherwise untouched."
+        exit 0
+    }
+    Write-Host "Engram already installed (memory present) - refusing to touch .claude/memory. Use -RefreshTooling to refresh skills/hooks/settings/CLAUDE.md (memory is never touched), or -Modules <name> to add a module."
     exit 0
 }
 
@@ -319,6 +398,9 @@ try {
 } catch {
     Write-Warning ("status line setup failed: " + $_.Exception.Message)
 }
+
+# ---------- 8. modules ----------
+foreach ($m in $Modules) { Install-EngramModule $m }
 
 # ---------- summary ----------
 Write-Host ""

@@ -430,6 +430,37 @@ if (Test-Path -LiteralPath $archFile) {
     }
 }
 
+# ---------- 9. dead-mdlink (relative markdown links must resolve on disk) ----------
+# ERROR under sweeps/ (an unlinked/broken artifact breaks the campaign hierarchy),
+# WARN elsewhere. Skipped: sweeps/artifacts/ (frozen historical records), #anchors,
+# and any target containing ':' (URL schemes, drive letters, file.ts:63 citations);
+# inline code is stripped.
+foreach ($f in $scanFiles) {
+    $rel = Rel-Path $f.FullName
+    if ($rel -like '*/sweeps/artifacts/*') { continue }
+    $fdir = ($f.DirectoryName -replace '\\', '/')
+    $lines = @()
+    try { $lines = [System.IO.File]::ReadAllLines($f.FullName) } catch { continue }
+    foreach ($line in $lines) {
+        $scan = [regex]::Replace($line, $codePattern, ' ')
+        $mm = [regex]::Matches($scan, '\]\(([^)\s]+)\)')
+        foreach ($m in $mm) {
+            $target = $m.Groups[1].Value
+            if ($target.StartsWith('#')) { continue }
+            if ($target.IndexOf(':') -ge 0) { continue }
+            $hsh = $target.IndexOf('#'); if ($hsh -ge 0) { $target = $target.Substring(0, $hsh) }
+            if ($target.Length -eq 0) { continue }
+            if (-not (Test-Path -LiteralPath "$fdir/$target")) {
+                if ($rel -like '*/sweeps/*') {
+                    Add-Finding 'ERROR' 'dead-mdlink' $rel "relative link resolves to nothing: $target"
+                } else {
+                    Add-Finding 'WARN' 'dead-mdlink' $rel "relative link resolves to nothing: $target"
+                }
+            }
+        }
+    }
+}
+
 # ==========================================================================
 # Output
 # ==========================================================================
