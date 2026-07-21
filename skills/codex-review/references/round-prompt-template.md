@@ -37,9 +37,13 @@ older rounds into one-line summaries as the list grows — the point is
 [Re-aim every round. Rules of thumb:
 1. The previous round's fix diff is ALWAYS target #1 — newest code is the
    least-reviewed code. Name the specific files/state machines it touched.
-2. Keep a numbered list of 6–10 concrete surfaces (module + what could be
+2. If the repo has a `bug-classes.md` taxonomy, draw surfaces from OPEN
+   classes' hunt heuristics and cite the class ids ("A1 in sibling
+   consumers of X"); skip classes marked CLOSED. The taxonomy is refreshed
+   at every round close (SKILL Step 8), so it is current by construction.
+3. Keep a numbered list of 6–10 concrete surfaces (module + what could be
    wrong there), not vague areas.
-3. Rotate in surfaces that have had little adversarial attention; drop
+4. Rotate in surfaces that have had little adversarial attention; drop
    surfaces that produced nothing two rounds running.]
 
 ## Method requirements

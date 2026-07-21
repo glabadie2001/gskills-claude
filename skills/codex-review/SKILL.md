@@ -8,14 +8,14 @@ description: Run one full adversarial Codex review round end-to-end — generate
 One invocation = one complete round, no manual shuttling of deliverables:
 
 ```
-prompt → codex exec (headless) → verify findings → triage → dispatch fixers → gates → next-round prompt → report
+prompt → codex exec (headless) → verify findings → triage → dispatch fixers → gates → distill → close (commit + next-round prompt) → report
 ```
 
 The user's role is to invoke the skill and read the final report. Do not
 pause mid-round to ask whether to proceed — the invocation IS the approval
-for the whole loop. Stop only for the standing exceptions: destructive
-actions, commits (only when the user asked), pushes (never), or a working
-tree full of unrelated uncommitted work you'd be racing against.
+for the whole loop, including the round-close commit (Step 9). Stop only
+for the standing exceptions: destructive actions, pushes (never), or a
+working tree full of unrelated uncommitted work you'd be racing against.
 
 ## Flags
 
@@ -58,7 +58,9 @@ LEDGER, not boilerplate — three sections carry the round-to-round memory:
   last round. This is what keeps signal high; skimping here costs a round
   of refuted findings.
 - **Where to hunt**: re-aim at under-reviewed surfaces. The newest fix diff
-  is ALWAYS target #1 — the newest code is the least-reviewed code.
+  is ALWAYS target #1 — the newest code is the least-reviewed code. When the
+  repo has a `bug-classes.md` taxonomy, draw the rest from OPEN classes'
+  hunt heuristics (cite class ids); skip classes marked CLOSED.
 
 ## Step 2 — Trigger Codex (headless)
 
@@ -133,21 +135,63 @@ AGENTS.md / CLAUDE.md / package.json — typically fmt + lint + typecheck +
 both test suites). An agent's own summary is not verification. A fixer
 failing gates twice → escalate one tier with the failure evidence.
 
-## Step 8 — Close the loop
+## Step 8 — Distill into the taxonomy
+
+Applies when the repo has Engram's bug-sweep module (`bug-classes.md` +
+`sweeps/INDEX.md`); otherwise skip to Step 9. This step is what keeps the
+taxonomy the campaign's knowledge layer and the ledger a ledger — skip it
+and verdict cells silently grow into a shadow taxonomy the graph drowns in.
+
+1. `bug-classes.md` carries a **`Distilled through: round <N>`** marker near
+   the top. Every round after the marker is the distillation backlog: the
+   round just closed, plus any earlier rounds that closed without this step
+   (their INDEX rows and journal entries hold the material — catch them up
+   now, in the same pass).
+2. For every CONFIRMED finding in the backlog: file a new class (one-sentence
+   mechanism + hunt heuristic) or add an instance line to the existing class
+   it belongs to; wikilink the atlas card it bites. A round that closes a
+   class's last known instance — with a sweep finding no more — marks the
+   class **CLOSED** (kept, not deleted: closed classes still teach design
+   review, and a reopened one is a signal).
+3. **Excise the before/after** — for every confirmed finding, cut the
+   minimal bugged snippet and its fixed replacement out of the fix commit
+   (`git show <sha>` — trim each side to the lines that carry the
+   mechanism, not the whole hunk) into the class's examples file,
+   `sweeps/examples/<class-id>-<slug>.md`: one file per class, one
+   `## R<N>#<f> — <file:line> (<sha>)` section per instance holding the
+   bugged fence, the fixed fence, and a one-line "why the left one is
+   wrong". Link the section from the class's instance entry. These pairs
+   are the corpus that makes log-dropping lossless — and double as ad-hoc
+   post-training examples of this codebase's own blind spots.
+4. Compact each distilled round's INDEX verdict cell to counts + class ids
+   + a one-line blocker note. This is safe precisely because of steps 2–3:
+   the mechanism prose lives in the taxonomy, the code pair in examples/,
+   the narrative in the journal; the row keeps its links untouched.
+5. Advance the marker. The round is not distilled until the marker names it.
+
+## Step 9 — Close the loop
 
 1. Journal the round if the project has persistent memory (e.g. Engram
    `/mem-journal`); add deferred items to its task ledger.
 2. If the repo has an Engram campaign ledger (`.claude/memory/sweeps/`):
-   copy the round's prompt + findings into `sweeps/artifacts/`, append the
-   round's row to `sweeps/INDEX.md` with RELATIVE markdown links to both
-   artifacts and the journal day (an unlinked filename is a broken
-   hierarchy), and file any newly observed bug class — or new instance of a
-   known class — in `bug-classes.md` with its hunt heuristic. Record the fix
-   commit sha in the row once the user commits.
-3. Write the NEXT round's prompt file per Step 1's ledger rules — the round
-   is not closed until the next one is aimed. It stays STAGED outside the
-   repo until run (never pre-archive an un-run prompt).
-4. Report to the user, leading with the outcome: a findings table
-   (# → severity → verdict → action → status), gate results, files
-   changed, deferred list, and the path of the next-round prompt.
-5. Do NOT commit unless the user asked; NEVER push.
+   copy the round's prompt + findings into `sweeps/artifacts/`, and append
+   the round's row to `sweeps/INDEX.md` with RELATIVE markdown links to
+   both artifacts and the journal day (an unlinked filename is a broken
+   hierarchy).
+3. **Commit the round** — one commit covering the fixes, their tests, and
+   any git-tracked ledger/memory updates; message shaped
+   `Codex R<N>: <one-line outcome>`. This commit is part of the loop (the
+   invocation authorizes it): it is what lets the next round's prompt seed
+   "Ground already covered" from `git log` and the INDEX row carry its fix
+   sha immediately — fill the sha into the row now, not "once the user
+   commits". Stage ONLY files this round touched (preflight already
+   screened unrelated work). NEVER push.
+4. Write the NEXT round's prompt file per Step 1's ledger rules — the round
+   is not closed until the next one is aimed. Seed "Where to hunt" from the
+   just-refreshed taxonomy (Step 8), newest fix diff still target #1. The
+   prompt stays STAGED outside the repo until run (never pre-archive an
+   un-run prompt).
+5. Report to the user, leading with the outcome: a findings table
+   (# → severity → verdict → action → status), gate results, files changed,
+   deferred list, the round's commit sha, and the path of the next-round
+   prompt.

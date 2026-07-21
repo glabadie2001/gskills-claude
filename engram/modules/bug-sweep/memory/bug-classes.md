@@ -14,6 +14,11 @@ classes into review prompts ("where to hunt"), (3) check new code against it
 at design time. Add classes as new rounds find them; mark fixed instances so
 sweeps hunt for OTHER instances, not the known ones.
 
+> **Distilled through: round 0** — advanced by the `/codex-review` distill
+> step (its Step 8) at every round close; rounds behind the marker are the
+> distillation backlog, caught up in the next close. A marker that lags the
+> ledger means knowledge is stranded in INDEX verdict cells instead of here.
+
 ## Format
 
 One `##` family per letter, one bullet per class:
@@ -22,15 +27,28 @@ One `##` family per letter, one bullet per class:
 ## A. <Family name — e.g. Staleness & identity races>
 
 - **A1 <slug>** — one-sentence mechanism. Instances: <round#finding / commit
-  sha per instance; mark fixed ones>. Hunt: <greppable patterns, code shapes,
-  and angles that find MORE instances of this class>.
+  sha per instance; mark fixed ones; link each instance's before/after pair,
+  e.g. `[ex](sweeps/examples/A1-slug.md#rNf)`>. Hunt: <greppable patterns,
+  code shapes, and angles that find MORE instances of this class>.
 ```
 
 Keep each class to one bullet; a class that outgrows its bullet is two
 classes. Traps discovered while fixing (a pattern that LOOKS like the fix
-but is vacuous) go inline as `TRAP:` inside the class.
+but is vacuous) go inline as `TRAP:` inside the class. A round that closes
+a class's last known instance — with a sweep finding no more — marks the
+class **CLOSED** in place (kept, not deleted: closed classes still teach
+design review, and a reopened one is a signal).
 
 Linking rules:
+
+- **Every instance gets its excised code pair** in
+  `sweeps/examples/<class-id>-<slug>.md` — one file per class, one section
+  per instance: the minimal bugged snippet, the fixed snippet (both cut
+  from the fix commit), and a one-line why. Filed by the `/codex-review`
+  distill step. The pairs are what makes compacting ledger/journal prose
+  lossless, and together they form a post-training corpus of this
+  codebase's observed blind spots — concrete enough to paste into design
+  review or fixer prompts as worked examples.
 
 - **Wikilink the atlas card(s) where the class bites** — once per class, at
   first confident mention (`…in [[example-module]]'s token broker`). The

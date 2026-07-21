@@ -28,6 +28,17 @@ the sole entry point; children are reached from here, not browsed.
   cards. An unlinked filename is a broken hierarchy.
 - **Classes:** findings cite ids from the [bug-classes](../bug-classes.md)
   taxonomy; add new classes there as rounds expose them.
+- **`examples/` holds excised before/after pairs** — one file per bug class
+  (`examples/<class-id>-<slug>.md`), one section per instance with the
+  minimal bugged and fixed snippets cut from the fix commit. Filed by the
+  distill step; linked from the class's instance lines in
+  [bug-classes](../bug-classes.md).
+- **Verdict cells compact after distillation:** until a round is distilled
+  into the taxonomy (its `Distilled through` marker passes the round), the
+  verdict cell may carry full mechanism prose; once distilled, compact it to
+  counts + class ids + a one-line blocker note — the prose's home is the
+  taxonomy and the journal, and un-compacted cells grow into a shadow
+  taxonomy.
 - No line budget: this ledger is append-only, one row per round/sweep.
 
 ## Reviewer rounds
