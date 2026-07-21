@@ -68,5 +68,6 @@ the sole entry point; children are reached from here, not browsed.
   prompt shapes and coverage conventions; read the latest round prompt for
   the deliberate-designs ledger.
 - **After any sweep/round:** copy the artifacts into `artifacts/` first, then
-  append the row here WITH links, and record the fix commit sha once the
-  user commits.
+  append the row here WITH links. The `/codex-review` round close commits
+  the round itself and fills the fix-commit sha in immediately; only
+  out-of-band sweeps wait on a user commit for their sha.
