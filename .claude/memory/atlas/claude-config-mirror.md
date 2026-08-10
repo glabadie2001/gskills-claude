@@ -7,9 +7,9 @@ paths:
   - CLAUDE.md
   - .gitignore
   - .gitattributes
-verified: b1de8e9
+verified: cd47bba
 verified_date: 2026-08-10
-verified_by: claude-sonnet-5
+verified_by: claude-fable-5
 ---
 The repo's reason for being: a version-controlled mirror of `~/.claude` customizations
 (rules, agents, skills) that syncs across machines and installs by copy or symlink.
