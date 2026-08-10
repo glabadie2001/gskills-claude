@@ -101,10 +101,57 @@ Regenerate from the actual `atlas/` directory (excluding `_*.md`):
 - PRESERVE the project one-liner, `## Protocol`, and `## Where everything lives` VERBATIM.
 - Budgets: MEMORY.md ≤120 lines; area indexes ≤60. Any card >60 lines → trim least-load-bearing content (verbose How-it-works prose first; never cut Invariants & gotchas).
 
+## 5b. Metrics — snapshot + scorecard
+
+`.claude/memory/metrics/` missing → create it now (the v6→v7 migration normally does;
+this is the self-heal). Then:
+
+1. **Append the sync snapshot** to `metrics/events.jsonl` (append-only; create if
+   missing) — one line, observable facts only, computed from the sweep you just ran:
+
+   ```json
+   {"t":"sync","ts":"YYYY-MM-DD HH:MM","model":"claude-fable-5","head":"<HEAD>","cards":12,"fresh":10,"stale":2,"mean_behind":2.5,"index_lines":98,"cards_over_budget":0,"dead_refs_fixed":1,"journal_entries_14d":9,"journal_gap_days":1}
+   ```
+
+   (`model` = your exact model id, same signature rule as journal headlines — never guess.)
+
+   `mean_behind` = mean commits-behind across cards that were stale at the START of this
+   sync (0 if none); `journal_entries_14d` = `## ` entry count across journal files dated
+   in the last 14 days; `journal_gap_days` = days since the newest dated journal file.
+
+2. **Tally recall events** (all `"t":"recall"` lines — read the file; if it exceeds
+   ~400 lines, tally with grep/wc rather than reading whole): hit / verified / miss
+   counts and hit rate, all-time and last-30-days; backfill conversion (misses with
+   non-null `backfilled` ÷ misses); mean `files_read` and `mem_files_read` per outcome;
+   `dead_end_cited` count. **Per-model slice:** when events span more than one `model`,
+   also tally hit rate and mean files-read PER MODEL — memory quality is model-relative
+   (a card one model must re-verify, a stronger model trusts; a gap one model hits,
+   another crushes), and per-model rows are what show whether the memory still earns its
+   overhead as models progress. **Repeat-miss check:** two+ misses on the same topic
+   (judge by question similarity, not exact match) = the backfill loop failed — flag it
+   in the report and fix the gap now (write the missing card).
+
+3. **Regenerate `metrics/scorecard.md`** — a GENERATED file (marked as such in a
+   comment), overwrite freely, ≤40 lines: retrieval table (windows × hit/verified/miss/
+   hit-rate/backfill-rate/mean-files-read), a per-model table when >1 model appears
+   (model × recalls/hit-rate/mean files_read/mean mem_files_read), a one-line **cost
+   ledger** — fixed overhead (index lines, always loaded) · marginal overhead (mean
+   mem_files_read per recall) · benefit (mean files_read on misses minus on hits, ×
+   hit count) — dead-end-save count, repeat-miss list (or "none"), then a health-trend
+   table of the last 6 sync snapshots (date, HEAD, cards, fresh, mean behind, index
+   lines, entries 14d). No wikilinks in this file — it is derived data, not a
+   knowledge layer.
+
+4. **Compaction:** only when `events.jsonl` exceeds ~400 lines, MOVE lines older than 90
+   days verbatim into `metrics/archive/events-YYYY.jsonl` (create dirs as needed).
+   Never delete or rewrite an event — recall events are the replay corpus for future
+   with/without-memory experiments, and their `q` + `head` fields are only useful intact.
+
 ## 6. Report
 
 - Table: card → `fresh` / `re-verified (N commits)` / `created` / `still stale`.
 - Architecture overview: `fresh` / `re-verified` / `missing — run /mem-arch update`.
+- Scorecard headline: recalls all-time, hit rate (30d), repeat misses flagged (if any).
 - Index structure: flat, or which areas (and whether hierarchy was introduced this run).
 - Migrations applied this run (old → new version), if any.
 - Reverted/gone work found during compaction, and the cards flagged "re-verify skeptically".

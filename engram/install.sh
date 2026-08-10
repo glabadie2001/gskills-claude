@@ -389,8 +389,9 @@ else
     echo "  - CLAUDE.md: appended Engram block."
 fi
 
-# ---------- 6. journal union-merge (prevents same-day merge conflicts in teams) ----------
+# ---------- 6. append-only union-merge (prevents merge conflicts in teams) ----------
 ga_path="$target/.gitattributes"
+ga_added=0
 if ! grep -q '\.claude/memory/journal/' "$ga_path" 2>/dev/null; then
     if [ -f "$ga_path" ] && [ -s "$ga_path" ] && [ -n "$(tail -c 1 "$ga_path" 2>/dev/null)" ]; then
         printf '\n' >> "$ga_path"
@@ -400,9 +401,23 @@ if ! grep -q '\.claude/memory/journal/' "$ga_path" 2>/dev/null; then
         echo ".claude/memory/journal/*.md merge=union"
         echo ".claude/memory/journal/archive/*.md merge=union"
     } >> "$ga_path"
-    echo "  - .gitattributes: journal union-merge rules added."
+    ga_added=1
+fi
+if ! grep -q '\.claude/memory/metrics/' "$ga_path" 2>/dev/null; then
+    if [ -f "$ga_path" ] && [ -s "$ga_path" ] && [ -n "$(tail -c 1 "$ga_path" 2>/dev/null)" ]; then
+        printf '\n' >> "$ga_path"
+    fi
+    {
+        echo "# Engram: metrics event log is append-only JSONL; union-merge prevents conflicts"
+        echo ".claude/memory/metrics/*.jsonl merge=union"
+        echo ".claude/memory/metrics/archive/*.jsonl merge=union"
+    } >> "$ga_path"
+    ga_added=1
+fi
+if [ "$ga_added" -eq 1 ]; then
+    echo "  - .gitattributes: append-only union-merge rules added."
 else
-    echo "  - .gitattributes: journal merge rules already present - unchanged."
+    echo "  - .gitattributes: union-merge rules already present - unchanged."
 fi
 
 # ---------- 7. status line (user-level, never clobbers) ----------

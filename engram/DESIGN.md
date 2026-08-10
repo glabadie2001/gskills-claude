@@ -221,6 +221,58 @@ Bash on Windows, native bash elsewhere — so the committed settings work for a 
 `engram-brief.ps1` and `engram-statusline.ps1` ship as documented fallbacks for
 PowerShell-only Windows setups.
 
+## Self-measurement (metrics)
+
+A memory system that can't demonstrate it helps is indistinguishable from one that
+doesn't. Engram measures itself in two tiers, with a third deliberately deferred:
+
+- **Health (tier 1)** — is the memory being *operated* correctly? Each `/mem-sync` run
+  appends a snapshot event (cards fresh/stale, mean commits-behind, budget compliance,
+  journal cadence, dead references fixed) so drift becomes a trend, not an anecdote.
+- **Outcome proxies (tier 2)** — does the memory *help*? `/mem-recall` logs every
+  question as an event: outcome (`hit` — answered from fresh memory, zero source files
+  opened; `verified` — answered from memory but stale cards forced targeted checks;
+  `miss` — code exploration was required), the cards relied on, the count of source
+  files opened, whether a journaled dead end shaped the answer, and what was backfilled.
+  The headline metrics: **hit rate** (fraction of questions memory answered instead of
+  exploration), **miss→backfill conversion** (every miss must become a write — a repeat
+  miss on the same topic means the compounding loop broke, and /mem-sync flags it), and
+  the **files-read gap** between hits and misses — misses *are* the no-memory baseline,
+  measured on the same codebase and question distribution, so tokens-saved needs no
+  control group.
+- **Counterfactual (tier 3, deferred)** — every recall event records the verbatim
+  question and the HEAD sha it was answered at, so the log doubles as a replay corpus:
+  a future experiment can re-ask the same questions from a fresh agent with memory
+  hidden, pinned to the same code state, and compare cost and correctness pairwise.
+  Nothing else needs to exist today for that to be possible later.
+
+Two structural choices follow from how the numbers will actually be used:
+
+- **Metrics are sliced per model.** Every event carries the exact model id (and effort)
+  that did the work — the same signature rule as journal headlines and `verified_by`.
+  Memory quality is model-relative: a card one model must re-verify, a stronger model
+  trusts cold; a gap that misses for one model, its successor crushes. Aggregate hit
+  rate would average those regimes into noise; per-model rows are what show whether the
+  memory still earns its keep as the model population underneath it changes.
+- **Overhead is a first-class column, not a footnote.** Engram's cost is real regardless
+  of its benefit: the always-loaded index (fixed, measured in lines per session), the
+  memory files opened per recall (`mem_files_read`, marginal), the sync passes. The
+  benefit is the avoided exploration — project-wide greps and file-reads a session
+  didn't run because a card answered first. The scorecard states both sides as a cost
+  ledger (fixed + marginal overhead vs. the files-read gap between misses and hits ×
+  hit count); if the overhead side ever wins, that is a finding, not a formatting
+  problem.
+
+Mechanics: one append-only `metrics/events.jsonl` (grep-able, diffable, never loaded
+into session context — only tallied), plus a generated `metrics/scorecard.md` that
+`/mem-sync` overwrites (≤40 lines; derived data, not a knowledge layer). Events past
+~400 lines / 90 days move verbatim to `metrics/archive/` — moved, never deleted, because
+the replay corpus is only useful intact. Two honesty rules: events record **observable
+facts only** (counts, classifications traceable to tool calls), never the model's
+self-assessment of helpfulness; and only skill-mediated recalls are logged — protocol
+rule 1 reads that skip `/mem-recall` go uncounted, so the hit rate under-counts rather
+than flatters.
+
 ## Field validation
 
 A three-angle survey of the field (products, research, practitioner reports — see

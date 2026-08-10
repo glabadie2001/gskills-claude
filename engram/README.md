@@ -23,6 +23,9 @@ An *engram* is the physical trace a memory leaves in a brain. This is that, for 
   tasks.md             # Now / Next / Later / Done
   decisions/NNN-*.md   # append-only ADRs: why things are the way they are
   gotchas.md           # cross-cutting traps
+  metrics/             # self-measurement: events.jsonl (append-only recall/sync
+                       #   events — also the replay corpus for future A/B experiments)
+                       #   + scorecard.md (hit rate & health trends, built by /mem-sync)
 ```
 
 Opt-in **modules** (see `modules/README.md`) compose extra memory layers onto this
@@ -37,10 +40,10 @@ Plus six skills and a session-start hook:
 | Piece | Job |
 |---|---|
 | `/mem-init` | Bootstrap: explores the codebase in parallel and writes the initial atlas — memory starts **full**, not empty |
-| `/mem-recall` | Answer questions from memory first; verify anything stale; backfill misses into the atlas |
+| `/mem-recall` | Answer questions from memory first; verify anything stale; backfill misses into the atlas — and log each question's outcome (hit / verified / miss) to the metrics event log |
 | `/mem-journal` | Log what just happened (including what *failed* and why), reconcile tasks |
 | `/mem-save` | File one fact into its single home |
-| `/mem-sync` | Repair pass: re-verify stale cards against the git diff, compact old journals, prune tasks, rebuild the index |
+| `/mem-sync` | Repair pass: re-verify stale cards against the git diff, compact old journals, prune tasks, rebuild the index — and rebuild the metrics scorecard from the event log |
 | `/mem-arch` | Architecture overview: keep the **Live** diagram verified against the code, set the **Target** (idealized) one, and keep the gap between them explicit. `render` produces a standalone X-ray report (computed layering, knots, hub scores, dependency structure matrix); `extract` diffs the diagram against the code's real import graph; `compare a..b` shows a refactor's architectural effect between two revs as a before→after diff with vital-sign deltas |
 | SessionStart hook | Injects a brief every session: open tasks, recent journal entries, which atlas cards are stale, and whether the architecture's Live diagram has drifted (all computed live from git). After a context compaction it instead reminds the session to journal anything unlogged. |
 | Status line | A live memory-health readout at the bottom of Claude Code — `🧠 2 now · 1 next │ atlas 8✓ │ ✎ today` — showing open tasks, stale atlas cards (cached; recomputed when HEAD moves or a card is edited), and days since the last journal entry. Registered once in your user settings; it self-locates the project — including an Engram-fied repo one level below where Claude was launched, shown with a `name:` prefix — so it works everywhere and stays blank in projects without memory. |
@@ -129,6 +132,18 @@ Memory systems for LLMs die in five known ways. Every mechanism here counters on
 
 No vector database, no external services: plain markdown + git, grep-able and auditable,
 small by construction. See [DESIGN.md](DESIGN.md) for the full rationale.
+
+**And it keeps score.** Every `/mem-recall` logs its outcome — hit (answered from fresh
+memory, zero source files opened), verified (stale card, targeted checks), or miss (code
+exploration required, then backfilled) — to `metrics/events.jsonl`; `/mem-sync` tallies
+the log into a scorecard: hit rate, miss→backfill conversion, and the files-read gap
+between hits and misses (misses are the built-in no-memory baseline, so "what does memory
+save" needs no control group). Events are signed with the model that answered, so hit
+rates slice per model — memory quality is model-relative, and the slice shows whether the
+memory still earns its keep as models progress — and the scorecard states Engram's own
+overhead (always-loaded index lines + memory files read per recall) against that benefit
+as an explicit cost ledger. Each event also records the verbatim question and HEAD sha,
+so the log doubles as a replay corpus for a future with/without-memory experiment.
 
 ## Day-to-day feel
 

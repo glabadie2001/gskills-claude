@@ -323,21 +323,29 @@ try {
     Write-Warning ("CLAUDE.md update failed: " + $_.Exception.Message)
 }
 
-# ---------- 6. journal union-merge (prevents same-day merge conflicts in teams) ----------
+# ---------- 6. append-only union-merge (prevents merge conflicts in teams) ----------
 try {
     $gaPath = Join-Path $Target '.gitattributes'
     $gaExisting = ''
     if (Test-Path -LiteralPath $gaPath) { $gaExisting = [System.IO.File]::ReadAllText($gaPath) }
+    $gaBlock = ''
     if ($gaExisting.IndexOf('.claude/memory/journal/') -lt 0) {
-        $gaBlock = "# Engram: journals are append-only; union-merge prevents same-day conflicts`n" +
-                   ".claude/memory/journal/*.md merge=union`n" +
-                   ".claude/memory/journal/archive/*.md merge=union`n"
+        $gaBlock += "# Engram: journals are append-only; union-merge prevents same-day conflicts`n" +
+                    ".claude/memory/journal/*.md merge=union`n" +
+                    ".claude/memory/journal/archive/*.md merge=union`n"
+    }
+    if ($gaExisting.IndexOf('.claude/memory/metrics/') -lt 0) {
+        $gaBlock += "# Engram: metrics event log is append-only JSONL; union-merge prevents conflicts`n" +
+                    ".claude/memory/metrics/*.jsonl merge=union`n" +
+                    ".claude/memory/metrics/archive/*.jsonl merge=union`n"
+    }
+    if ($gaBlock.Length -gt 0) {
         $gaSep = ''
         if ($gaExisting.Length -gt 0 -and -not $gaExisting.EndsWith("`n")) { $gaSep = "`n" }
         [System.IO.File]::WriteAllText($gaPath, $gaExisting + $gaSep + $gaBlock, $utf8NoBom)
-        Write-Step ".gitattributes: journal union-merge rules added."
+        Write-Step ".gitattributes: append-only union-merge rules added."
     } else {
-        Write-Step ".gitattributes: journal merge rules already present - unchanged."
+        Write-Step ".gitattributes: union-merge rules already present - unchanged."
     }
 } catch {
     Write-Warning (".gitattributes update failed: " + $_.Exception.Message)
