@@ -12,14 +12,24 @@ the sole entry point; children are reached from here, not browsed.
 
 ## Conventions
 
-- **`artifacts/` is the canonical durable archive.** Round prompts are STAGED
-  outside the repo while a round runs (a working-tree review must never read
-  its own instructions — and if `.claude/` is gitignored, nothing outside this
-  archive survives a cleanup). Copy a round's prompt+findings into
-  `artifacts/` and link them in its row only AFTER the round completes.
-  Workflow sweep scripts + result JSONs are archived the same way (their
-  session/temp homes get cleaned).
-- **Naming:** `<Reviewer>_Prompt_<M-D-YY>_Round<N>.md`,
+- **`artifacts/` is the canonical durable archive.** A round's ARCHIVED
+  prompt artifact is its **brief** — the per-round unique material (header,
+  target-diff description, where-to-hunt list). The FULL prompt a reviewer
+  consumes is assembled at run time (brief + ground-covered derived from
+  this index + [deliberate-designs](deliberate-designs.md) + template
+  boilerplate), is STAGED outside the repo while the round runs (a
+  working-tree review must never read its own instructions — and if
+  `.claude/` is gitignored, nothing outside this archive survives a
+  cleanup), and is NOT archived: archiving assembled prompts stores the
+  whole accumulated campaign state again every round. Copy a round's
+  brief+findings into `artifacts/` and link them in its row only AFTER the
+  round completes. Workflow sweep scripts + result JSONs are archived the
+  same way (their session/temp homes get cleaned).
+- **`artifacts/cold/`** holds compressed (`.tar.gz`) full prompts from
+  before brief-based archiving, byte-exact for provenance. Never browsed,
+  only extracted on demand; the linter treats it like the rest of
+  `artifacts/` (frozen history).
+- **Naming:** `<Reviewer>_Brief_<M-D-YY>_Round<N>.md`,
   `<Reviewer>_Findings_<M-D-YY>_Round<N>.md`; sweep scripts keep their
   workflow id (`<name>-wf_<id>.js`) beside `<name>-results.json`.
 - **Linking:** artifacts and journal days use RELATIVE markdown links
@@ -65,8 +75,9 @@ the sole entry point; children are reached from here, not browsed.
   [bug-classes](../bug-classes.md), then follow the findings links above for
   the class id or file name; the fix-commit column gives `git show` targets.
 - **Before a new sweep:** read the last sweep's script for the finder/refuter
-  prompt shapes and coverage conventions; read the latest round prompt for
-  the deliberate-designs ledger.
+  prompt shapes and coverage conventions; read
+  [deliberate-designs](deliberate-designs.md) for what must not be
+  re-reported.
 - **After any sweep/round:** copy the artifacts into `artifacts/` first, then
   append the row here WITH links. The `/codex-review` round close commits
   the round itself and fills the fix-commit sha in immediately; only

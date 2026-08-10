@@ -8,12 +8,19 @@ verdict, and fix commit traceable years later.
 ## What it adds to `.claude/memory/`
 
 - `sweeps/INDEX.md` — the campaign ledger and sole entry point: one row per
-  round/sweep/review, linking prompt + findings artifacts, verdicts, fix
+  round/sweep/review, linking brief + findings artifacts, verdicts, fix
   commits, and the journal day. Conventions (artifact naming, the
   stage-outside-then-archive rule, linking style) live in the file itself.
-- `sweeps/artifacts/` — the canonical durable archive for prompts, findings,
-  sweep scripts, and result JSONs. Matters most when `.claude/` is
-  gitignored: this archive is then the only thing that survives a cleanup.
+- `sweeps/deliberate-designs.md` — the standing not-bugs ledger: accepted
+  trade-offs, refuted findings, deferred-by-decision items, pending manual
+  checks. Assembled verbatim into every round prompt, so this knowledge
+  lives once instead of being copied forward prompt-to-prompt (which is
+  what made prompts — and every archived copy — grow monotonically).
+- `sweeps/artifacts/` — the canonical durable archive for round briefs,
+  findings, sweep scripts, and result JSONs. Matters most when `.claude/`
+  is gitignored: this archive is then the only thing that survives a
+  cleanup. Full prompts are assembled at run time and NOT archived; legacy
+  full prompts live compressed under `artifacts/cold/`.
 - `sweeps/examples/` — excised before/after code pairs, one file per bug
   class, one section per confirmed instance (minimal bugged snippet + fixed
   snippet from the fix commit + one-line why). Makes compacting
@@ -32,13 +39,17 @@ Plus two bullets in MEMORY.md's "Where everything lives" (via
 
 - The `/codex-review` skill (user-level, `skills/codex-review/` in this
   repo) runs a full reviewer round end-to-end and closes the loop into this
-  module's ledger when present. Its round-close includes the **distill
-  step**: confirmed findings roll into `bug-classes.md` (a `Distilled
-  through: round N` marker tracks the backlog and forces catch-up), each
-  finding's bugged/fixed snippets are excised into `sweeps/examples/`, the
-  distilled rounds' INDEX verdict cells compact to counts + class ids, and
-  the round is committed so the next prompt seeds "Ground already covered"
-  from `git log` and "Where to hunt" from the refreshed taxonomy.
+  module's ledger when present. Its prompt step ASSEMBLES the full prompt
+  at run time — round brief + ground-covered derived from the INDEX +
+  `deliberate-designs.md` verbatim + template boilerplate — and archives
+  only the brief. Its round-close includes the **distill step**: confirmed
+  findings roll into `bug-classes.md` (a `Distilled through: round N`
+  marker tracks the backlog and forces catch-up), each finding's
+  bugged/fixed snippets are excised into `sweeps/examples/`, refuted and
+  deferred verdicts land in `deliberate-designs.md`, the distilled rounds'
+  INDEX verdict cells compact to counts + class ids, and the round is
+  committed so the next brief seeds "Where to hunt" from the refreshed
+  taxonomy.
 - Workflow class sweeps archive their scripts + results into `artifacts/`
   per the INDEX conventions.
 

@@ -35,8 +35,9 @@ working tree full of unrelated uncommitted work you'd be racing against.
    campaign ledger (`.claude/memory/sweeps/INDEX.md` — Engram's bug-sweep
    module; if Engram is present WITHOUT it, mention that
    `install.ps1 -Target <repo> -Modules bug-sweep` adds it), that is the ledger:
-   read its top table for the last round's number, prompt, and findings
-   (archived under `sweeps/artifacts/`). Otherwise fall back to loose files
+   read its top table for the last round's number, brief/prompt, and
+   findings (archived under `sweeps/artifacts/`; full prompts from before
+   brief-based archiving live compressed under `sweeps/artifacts/cold/`). Otherwise fall back to loose files
    matching `Codex_Prompt_*Round<N>*.md` in CWD, the repo root, and the
    repo's parent directory — the ledger dir is wherever they already live.
    Either way, the CURRENT round's prompt is STAGED outside the repo (the
@@ -46,21 +47,33 @@ working tree full of unrelated uncommitted work you'd be racing against.
 
 ## Step 1 — Round prompt
 
-If a prompt for the current round exists but was never run, use it as-is.
-Otherwise generate `Codex_Prompt_<M-D-YY>_Round<N+1>.md` from the previous
-round's prompt using `references/round-prompt-template.md`. The prompt is a
-LEDGER, not boilerplate — three sections carry the round-to-round memory:
+If a staged prompt (or brief) for the current round exists but was never
+run, use it as-is. Otherwise build the prompt per
+`references/round-prompt-template.md`, which has two modes:
 
-- **Ground already covered**: append what the last round fixed (from git
-  log / project journal), so Codex never re-treads verified territory.
-- **Deliberate designs — do not report as bugs**: append any new accepted
-  trade-offs, deferred-by-decision items, and known-pending checks from the
-  last round. This is what keeps signal high; skimping here costs a round
-  of refuted findings.
-- **Where to hunt**: re-aim at under-reviewed surfaces. The newest fix diff
-  is ALWAYS target #1 — the newest code is the least-reviewed code. When the
-  repo has a `bug-classes.md` taxonomy, draw the rest from OPEN classes'
+**With Engram's bug-sweep module** (the ledger from Step 0 is
+`sweeps/INDEX.md`) — the prompt is ASSEMBLED at run time; never carry a
+previous prompt forward (copy-forward is what makes prompts and their
+archives grow monotonically). Write only the round **brief**
+(`Codex_Brief_<M-D-YY>_Round<N+1>.md`) — header + target-diff description +
+where-to-hunt — then assemble, in template section order:
+
+- **Ground already covered**: DERIVE from the INDEX rows (round → classes →
+  fix commits, one line per distilled round) plus a fuller block for the
+  last round from git log / journal. Never stored in the prompt's own
+  lineage — the INDEX is the source of truth.
+- **Deliberate designs — do not report as bugs**: include
+  `sweeps/deliberate-designs.md` VERBATIM. This is what keeps signal high;
+  a stale or missing entry costs a round of refuted findings.
+- **Where to hunt** (from the brief): re-aim at under-reviewed surfaces.
+  The newest fix diff is ALWAYS target #1 — the newest code is the
+  least-reviewed code. Draw the rest from `bug-classes.md` OPEN classes'
   hunt heuristics (cite class ids); skip classes marked CLOSED.
+
+**Without the module** (loose-files fallback) — generate
+`Codex_Prompt_<M-D-YY>_Round<N+1>.md` from the previous round's prompt,
+appending to its Ground-covered and Deliberate-designs sections and
+compacting older entries as they age (the template's legacy mode).
 
 ## Step 2 — Trigger Codex (headless)
 
@@ -91,8 +104,9 @@ and re-derive the mechanism yourself; the verdict is yours, not Codex's:
 
 - **CONFIRMED** — mechanism and failure scenario check out (note anything
   the finding understated; verified scope may be broader).
-- **REFUTED** — cite the code that disproves it; it goes in the next
-  round's deliberate-designs section so it is never re-reported.
+- **REFUTED** — cite the code that disproves it; it goes in
+  `sweeps/deliberate-designs.md` (or, without the module, the next round's
+  deliberate-designs section) so it is never re-reported.
 - **DOWNGRADED / DEFERRED** — real but with a narrower window, an existing
   human checkpoint, or a fix that is feature-scale (schema, contract, UX
   redesign) rather than a bug fix.
@@ -112,8 +126,9 @@ scenario table covering both failure modes.
 - **Fix now**: confirmed correctness, data-integrity, duplicate-side-effect,
   security, and concurrency findings with a contained blast radius.
 - **Defer**: schema/contract redesigns, feature-level work, cosmetic/UX
-  polish → record in the project task ledger AND the next round prompt's
-  deliberate-designs/deferred section.
+  polish → record in the project task ledger AND the deliberate-designs
+  ledger's deferred section (`sweeps/deliberate-designs.md`; without the
+  module, the next round prompt's deferred section).
 
 ## Step 6 — Dispatch fixers
 
@@ -167,17 +182,24 @@ and verdict cells silently grow into a shadow taxonomy the graph drowns in.
    + a one-line blocker note. This is safe precisely because of steps 2–3:
    the mechanism prose lives in the taxonomy, the code pair in examples/,
    the narrative in the journal; the row keeps its links untouched.
-5. Advance the marker. The round is not distilled until the marker names it.
+5. **Reconcile `sweeps/deliberate-designs.md`**: this round's refuted and
+   deferred verdicts are already filed there (Steps 4–5) — now PRUNE any
+   entry this round's fixes invalidated (the design it defends no longer
+   exists). A stale entry is worse than a missing one: it is assembled
+   into every future prompt and suppresses real findings.
+6. Advance the marker. The round is not distilled until the marker names it.
 
 ## Step 9 — Close the loop
 
 1. Journal the round if the project has persistent memory (e.g. Engram
    `/mem-journal`); add deferred items to its task ledger.
 2. If the repo has an Engram campaign ledger (`.claude/memory/sweeps/`):
-   copy the round's prompt + findings into `sweeps/artifacts/`, and append
-   the round's row to `sweeps/INDEX.md` with RELATIVE markdown links to
-   both artifacts and the journal day (an unlinked filename is a broken
-   hierarchy).
+   copy the round's BRIEF + findings into `sweeps/artifacts/` (the
+   assembled full prompt is never archived — its ledger sections live in
+   the INDEX and `deliberate-designs.md`; discard it once the round
+   closes), and append the round's row to `sweeps/INDEX.md` with RELATIVE
+   markdown links to both artifacts and the journal day (an unlinked
+   filename is a broken hierarchy).
 3. **Commit the round** — one commit covering the fixes, their tests, and
    any git-tracked ledger/memory updates; message shaped
    `Codex R<N>: <one-line outcome>`. This commit is part of the loop (the
@@ -186,11 +208,12 @@ and verdict cells silently grow into a shadow taxonomy the graph drowns in.
    sha immediately — fill the sha into the row now, not "once the user
    commits". Stage ONLY files this round touched (preflight already
    screened unrelated work). NEVER push.
-4. Write the NEXT round's prompt file per Step 1's ledger rules — the round
-   is not closed until the next one is aimed. Seed "Where to hunt" from the
-   just-refreshed taxonomy (Step 8), newest fix diff still target #1. The
-   prompt stays STAGED outside the repo until run (never pre-archive an
-   un-run prompt).
+4. Write the NEXT round's brief (or, without the module, prompt file) per
+   Step 1's rules — the round is not closed until the next one is aimed.
+   Seed "Where to hunt" from the just-refreshed taxonomy (Step 8), newest
+   fix diff still target #1. It stays STAGED outside the repo until run
+   (never pre-archive an un-run brief; assembly happens at run time, so
+   the ledger sections it picks up are current by construction).
 5. Report to the user, leading with the outcome: a findings table
    (# → severity → verdict → action → status), gate results, files changed,
    deferred list, the round's commit sha, and the path of the next-round
