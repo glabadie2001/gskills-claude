@@ -35,7 +35,10 @@ the sole entry point; children are reached from here, not browsed.
 - **Linking:** artifacts and journal days use RELATIVE markdown links
   (`[findings](artifacts/…)`, `[../journal/YYYY-MM-DD.md](…)`) — the viewer
   renders these as graph edges; `[[wikilinks]]` stay reserved for atlas
-  cards. An unlinked filename is a broken hierarchy.
+  cards. An unlinked filename is a broken hierarchy. When journal compaction
+  archives a linked day, /mem-sync retargets the link to
+  `../journal/archive/YYYY-MM.md#YYYY-MM-DD` — a sanctioned row edit (the
+  address changes, the record doesn't).
 - **Classes:** findings cite ids from the [bug-classes](../bug-classes.md)
   taxonomy; add new classes there as rounds expose them.
 - **`examples/` holds excised before/after pairs** — one file per bug class

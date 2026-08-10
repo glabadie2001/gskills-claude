@@ -75,6 +75,17 @@ For each `journal/YYYY-MM-DD.md` (exclude `_template.md`) dated more than 14 day
 
    **Did** and **Touched** bullets may be dropped. **Learned** and **Dead ends** must survive verbatim.
 3. Delete the original daily file.
+4. **Repair inbound links.** Every archived daily was a potential link target. Grep ALL
+   memory layers for references to each day you archived — relative md links
+   (`journal/YYYY-MM-DD.md`, any prefix) and `[[YYYY-MM-DD]]` wikilinks — and retarget
+   them to the digest: `journal/archive/YYYY-MM.md#YYYY-MM-DD` (the digest's
+   `## YYYY-MM-DD` header is the anchor; drop any finer original anchor). This is a
+   sanctioned edit even in never-rewrite layers (sweeps/INDEX.md rows, old journal
+   entries): retargeting changes the address, not the record — and an unrepaired link is
+   a dead link, which the linter escalates to ERROR under `sweeps/`. **Self-heal:** also
+   scan for `journal/<date>` references whose daily file no longer exists from EARLIER
+   compactions and retarget those too — runs of this skill predating this step left them
+   broken.
 
 ## 4. Task pruning
 
