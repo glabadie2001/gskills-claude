@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/engram-brief.sh\"",
+            "shell": "bash",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

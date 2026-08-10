@@ -1,2 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+# Engram: journals are append-only; union-merge prevents same-day conflicts
+.claude/memory/journal/*.md merge=union
+.claude/memory/journal/archive/*.md merge=union
+# Engram: metrics event log is append-only JSONL; union-merge prevents conflicts
+.claude/memory/metrics/*.jsonl merge=union
+.claude/memory/metrics/archive/*.jsonl merge=union
