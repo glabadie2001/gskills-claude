@@ -43,6 +43,44 @@ try {
     if (-not $root) { $root = $cwdVal }
     if (-not $root) { $root = (Get-Location).Path }
 
+    # ---------- locate the Engram memory (root itself, then pin file, then one
+    # level down) ----------
+    # Nested: Claude launched in a PARENT of the Engram-fied repo -> a pin file
+    # (.claude\engram-root, written by the installer) or a one-level-down probe
+    # (statusline's algorithm) resolves the child, so the journal write lands
+    # there. An invalid/dangling pin falls through to the probe rather than
+    # failing hard.
+    if (-not (Test-Path -LiteralPath (Join-Path $root '.claude\memory\MEMORY.md'))) {
+        $pinLine = ''
+        $pinFile = Join-Path $root '.claude\engram-root'
+        if (Test-Path -LiteralPath $pinFile -PathType Leaf) {
+            try {
+                foreach ($pl in [System.IO.File]::ReadAllLines($pinFile)) {
+                    $t = $pl.Trim()
+                    if ($t) { $pinLine = $t; break }
+                }
+            } catch { }
+        }
+        $pinTarget = $null
+        if ($pinLine) {
+            $candidate = Join-Path $root $pinLine
+            if (Test-Path -LiteralPath (Join-Path $candidate '.claude\memory\MEMORY.md')) {
+                $pinTarget = $candidate
+            }
+        }
+        if ($pinTarget) {
+            $root = $pinTarget
+        } else {
+            $nested = @()
+            try {
+                $nested = @(Get-ChildItem -LiteralPath $root -Directory |
+                    Sort-Object Name |
+                    Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName '.claude\memory\MEMORY.md') })
+            } catch { }
+            if ($nested.Count -gt 0) { $root = $nested[0].FullName }
+        }
+    }
+
     # ---------- guard: memory present and initialized ----------
     $memDir   = Join-Path $root '.claude\memory'
     $memoryMd = Join-Path $memDir 'MEMORY.md'

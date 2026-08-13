@@ -7,11 +7,11 @@ when_to_use: When the SessionStart brief shows stale cards, before starting majo
 
 # mem-sync — repair memory rot
 
-All paths relative to repo root; memory in `.claude/memory/`.
+All paths in this skill mean `<ROOT>/.claude/memory/...`; `<ROOT>` is resolved in Step 0 below.
 
 ## 0. Setup
 
-- `.claude/memory/MEMORY.md` missing → stop: "Engram not installed." Contains `STATUS: EMPTY` → stop: "Not initialized — run /mem-init first."
+- **Step 0 — resolve `<ROOT>`.** `.claude/memory/MEMORY.md` exists here → `<ROOT>` = `.`. Else if `.claude/engram-root` exists → `<ROOT>` = the relative path on its first line. Else if `*/.claude/memory/MEMORY.md` matches exactly one directory one level down → `<ROOT>` = that directory; several matches → pick the one the current work concerns and say so. No match → stop: "Engram not installed." Contains `STATUS: EMPTY` → stop: "Not initialized — run /mem-init first." Every path below means `<ROOT>/.claude/memory/...`, and every `git` command runs as `git -C <ROOT> ...`.
 - **Version walk:** read `.claude/memory/VERSION` (missing → 1) and the current tooling
   version from `MIGRATIONS.md` in this skill's own directory. Memory older → apply each
   `## vN → vN+1` section of MIGRATIONS.md in order BEFORE anything else, writing the new
@@ -130,28 +130,29 @@ this is the self-heal). Then:
    sync (0 if none); `journal_entries_14d` = `## ` entry count across journal files dated
    in the last 14 days; `journal_gap_days` = days since the newest dated journal file.
 
-2. **Tally recall events** (all `"t":"recall"` lines — read the file; if it exceeds
-   ~400 lines, tally with grep/wc rather than reading whole): hit / verified / miss
-   counts and hit rate, all-time and last-30-days; backfill conversion (misses with
-   non-null `backfilled` ÷ misses); mean `files_read` and `mem_files_read` per outcome;
-   `dead_end_cited` count. **Per-model slice:** when events span more than one `model`,
-   also tally hit rate and mean files-read PER MODEL — memory quality is model-relative
-   (a card one model must re-verify, a stronger model trusts; a gap one model hits,
-   another crushes), and per-model rows are what show whether the memory still earns its
-   overhead as models progress. **Repeat-miss check:** two+ misses on the same topic
-   (judge by question similarity, not exact match) = the backfill loop failed — flag it
-   in the report and fix the gap now (write the missing card).
+2. **Regenerate `metrics/scorecard.md` deterministically** — run the script, never
+   hand-compute the tables (zero-token principle: derived stats come from the log DB,
+   not from the model):
 
-3. **Regenerate `metrics/scorecard.md`** — a GENERATED file (marked as such in a
-   comment), overwrite freely, ≤40 lines: retrieval table (windows × hit/verified/miss/
-   hit-rate/backfill-rate/mean-files-read), a per-model table when >1 model appears
-   (model × recalls/hit-rate/mean files_read/mean mem_files_read), a one-line **cost
-   ledger** — fixed overhead (index lines, always loaded) · marginal overhead (mean
-   mem_files_read per recall) · benefit (mean files_read on misses minus on hits, ×
-   hit count) — dead-end-save count, repeat-miss list (or "none"), then a health-trend
-   table of the last 6 sync snapshots (date, HEAD, cards, fresh, mean behind, index
-   lines, entries 14d). No wikilinks in this file — it is derived data, not a
-   knowledge layer.
+   ```
+   .claude/scripts/engram-scorecard.ps1          # Windows
+   .claude/scripts/engram-scorecard.sh           # mac/Linux (auto-dispatches on Windows)
+   ```
+
+   The twins emit a byte-identical `scorecard.md` (retrieval windows, per-model slice,
+   cost ledger, exact repeat-miss list, health trend of the last 6 sync snapshots) from
+   `events.jsonl` + the live index line count. Stat definitions live in the `.ps1`
+   header. If the script is missing, the tooling install is stale — refresh it
+   (installer `-RefreshTooling`); do not fall back to hand-computing. Read the
+   regenerated scorecard (≤40 lines) — it feeds the report headline.
+
+3. **Repeat-miss check (the one model-side judgment):** the scorecard lists EXACT
+   repeat misses only. Additionally grep `'"outcome":"miss"'` over `events.jsonl` and
+   judge SEMANTIC near-duplicates — two+ misses on the same topic phrased differently
+   = the backfill loop failed. Flag it in the report and fix the gap now (write the
+   missing card). Per-model slices matter when reading the scorecard: memory quality
+   is model-relative — per-model rows are what show whether the memory still earns
+   its overhead as models progress.
 
 4. **Compaction:** only when `events.jsonl` exceeds ~400 lines, MOVE lines older than 90
    days verbatim into `metrics/archive/events-YYYY.jsonl` (create dirs as needed).

@@ -1,7 +1,7 @@
 ---
 name: mem-recall
-description: Answer questions about this codebase from Engram project memory first — read the atlas, check freshness against git, verify only what's stale — instead of re-exploring code from scratch. Use when the user asks how something works, where something lives, or why something is the way it is in this repo.
-when_to_use: Invoke when the user asks "how does X work", "where is Y", "why is Z like this" about THIS codebase, or before starting any code exploration whose goal is understanding that memory may already hold. Memory + targeted verification beats full re-exploration — that is the point of the system.
+description: Answer questions about this codebase from Engram project memory first — read the atlas and journal, check freshness against git, verify only what's stale — instead of re-exploring code from scratch. Use when the user asks how something works, where something lives, why it is the way it is, or what was tried or decided before.
+when_to_use: Invoke when the user asks a question whose answer lives in a memory layer — "how does X work" (atlas), "why is Z like this" (decisions), "what was tried, what dead-ended" (journal) — or before code exploration whose goal is understanding that memory may already hold. NOT for questions a live query answers authoritatively — git state ("did we push X?", "is Y on master?"), current file contents, test output: answer those from the tool directly, no skill, no event. Git answers whether/when; memory answers why and what-it-was-like. Memory + targeted verification beats full re-exploration — that is the point of the system.
 argument-hint: <the question>
 ---
 
@@ -11,9 +11,11 @@ Question: $ARGUMENTS
 
 ## 0. Guard
 
-If `.claude/memory/` does not exist in this repo, say "Engram is not installed here (no .claude/memory/)" and answer from code as usual.
+**Step 0 — resolve `<ROOT>`.** `.claude/memory/MEMORY.md` exists here → `<ROOT>` = `.`. Else if `.claude/engram-root` exists → `<ROOT>` = the relative path on its first line. Else if `*/.claude/memory/MEMORY.md` matches exactly one directory one level down → `<ROOT>` = that directory; several matches → pick the one the current work concerns and say so. No match → say "Engram is not installed here (no .claude/memory/)" and answer from code as usual. Every memory path below means `<ROOT>/.claude/memory/...`, and every `git` command runs as `git -C <ROOT> ...`.
 
 Prefer memory plus targeted verification over full code re-exploration. Read code only where memory has no answer or a stale card forces re-verification of a claim you are about to assert.
+
+Scope guard: this skill serves questions whose answer lives in a memory layer (atlas / decisions / journal / gotchas / tasks). A question a live query answers authoritatively — git state ("did we push X?"), current file contents, test results — is NOT a recall: answer it from that tool directly, skip this procedure, log nothing. If it then turns out to hinge on narrative memory ("why was it done that way?"), enter this procedure at that point. The event log measures memory's contribution, not question traffic — logging non-memory questions corrupts the metric in both directions (inflated hit rate, inflated overhead).
 
 ## Procedure
 
@@ -41,7 +43,7 @@ Prefer memory plus targeted verification over full code re-exploration. Read cod
    one line, no pretty-printing; strip newlines from `q` and escape its double quotes):
 
    ```json
-   {"t":"recall","ts":"YYYY-MM-DD HH:MM","model":"claude-fable-5","effort":"xhigh","head":"<git rev-parse --short HEAD>","q":"<the question, verbatim>","outcome":"hit|verified|miss","cards":["auth","billing"],"files_read":0,"mem_files_read":3,"dead_end_cited":false,"backfilled":null}
+   {"t":"recall","ts":"YYYY-MM-DD HH:MM","model":"claude-fable-5","effort":"xhigh","head":"<git rev-parse --short HEAD>","q":"<the question, verbatim>","outcome":"hit|verified|miss","cards":["auth","billing"],"files_read":0,"mem_files_read":3,"mem_greps":0,"mem_grep_lines":0,"dead_end_cited":false,"backfilled":null}
    ```
 
    - `model` / `effort` — YOUR exact model id as stated in your system context, and the
@@ -60,6 +62,14 @@ Prefer memory plus targeted verification over full code re-exploration. Read cod
    - `mem_files_read` — count of MEMORY files opened (cards, journal files, indexes —
      excluding always-loaded MEMORY.md). This is the overhead side of the ledger: memory
      is only a win while `mem_files_read` on hits stays well under `files_read` on misses.
+   - `mem_greps` — count of search calls (Grep tool, shell grep/rg) aimed at
+     `.claude/memory/**` while answering. This is the index cache-miss signal: the
+     always-loaded index should route to a card by NAME, so every memory grep marks a
+     question the index couldn't route — even on a `hit`, it cost a search to get there.
+   - `mem_grep_lines` — total lines of output those searches returned into context,
+     summed across calls (approximate; count what you saw, round freely; 0 when
+     `mem_greps` is 0). The context-cost side of the grep signal (≈10 tokens/line) —
+     pairs with `mem_files_read` on the overhead ledger.
    - `dead_end_cited` — true if a journaled dead end (`dead:`/`parked:`) shaped the answer.
    - `backfilled` — card name written/updated by step 6, else `null`. A `miss` with
      `backfilled: null` must be justified in your answer (e.g. question was out of scope).

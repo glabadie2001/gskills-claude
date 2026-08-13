@@ -25,7 +25,8 @@ An *engram* is the physical trace a memory leaves in a brain. This is that, for 
   gotchas.md           # cross-cutting traps
   metrics/             # self-measurement: events.jsonl (append-only recall/sync
                        #   events — also the replay corpus for future A/B experiments)
-                       #   + scorecard.md (hit rate & health trends, built by /mem-sync)
+                       #   + scorecard.md (hit rate & health trends, regenerated
+                       #   deterministically by scripts/engram-scorecard — zero tokens)
 ```
 
 Opt-in **modules** (see `modules/README.md`) compose extra memory layers onto this

@@ -15,12 +15,16 @@ target repo's `.claude/memory/`: the workflow layer over the raw memory format.
 - `engram/template/skills/mem-journal/SKILL.md` — append-only daily entries; reconciles tasks/atlas/gotchas in the same turn
 - `engram/template/skills/mem-save/SKILL.md` — single-fact router to exactly one home
 - `engram/template/skills/mem-sync/SKILL.md` — repair pass: MIGRATIONS walk, staleness sweep, dead-reference lint, journal compaction + link retarget, task pruning, TOC rebuild, metrics scorecard
-- `engram/template/skills/mem-sync/MIGRATIONS.md` — forward-only version walk v1→v7; check-first/idempotent; never rewrites append-only layers
+- `engram/template/skills/mem-sync/MIGRATIONS.md` — forward-only version walk v1→v8; check-first/idempotent; never rewrites append-only layers
 - `engram/template/skills/mem-arch/SKILL.md` — architecture.md Live vs Target; modes update/target/gaps/render/extract/compare
 - `engram/template/skills/mem-arch/xray.html` — standalone X-ray report; `render` injects a JSON payload at the `__ENGRAM_INPUT__` marker; layering/knots/hubs/DSM computed client-side
 
 ## How it works
-Everything keys off frontmatter staleness: `verified` sha + `paths` globs;
+All six open with a shared Step 0 (since 2026-08-11, v8): resolve `<ROOT>` as cwd →
+`.claude/engram-root` pin → one-level-down probe for `*/.claude/memory/MEMORY.md`; every
+memory path means `<ROOT>/.claude/memory/...` and every git command runs `git -C <ROOT>` —
+this is what makes parent-rooted (satellite) sessions work; a CLAUDE.md pointer alone
+loses to the guard. Everything keys off frontmatter staleness: `verified` sha + `paths` globs;
 `git log <verified>..HEAD -- <paths>` empty = fresh, else the card is a map, not truth.
 mem-init creates the baseline, mem-recall consumes read-mostly (writing back on miss),
 mem-save files single facts, mem-journal narrates + reconciles, mem-sync alone repairs bulk

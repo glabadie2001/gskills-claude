@@ -1,6 +1,6 @@
 # Engram migrations
 
-**Current tooling version: 7.** The installed memory's version lives at
+**Current tooling version: 8.** The installed memory's version lives at
 `.claude/memory/VERSION` (one integer; **missing file = version 1**). /mem-sync compares
 that number against the version above and applies each `## vN → vN+1` section below in
 order, writing the new number to VERSION after each section completes and appending a
@@ -235,4 +235,54 @@ fixed/marginal-overhead vs. benefit cost ledger).
 3. **Forward-only** — never fabricate events for recalls or syncs you did not
    witness; history starts at zero. The sync run that walks this migration
    writes the first snapshot in its own step 5b.
+
+## v7 → v8 (nested-root resolution + satellite installs)
+
+**Tooling-only hop — no memory-file schema change.** Nothing under
+`.claude/memory/` is created, moved, or rewritten; the memory you have is
+already v8-shaped. What changed is how the tooling FINDS that memory.
+
+Hooks, mem-* skills, and the linter now share one canonical resolution order for
+the Engram root: (1) the directory itself, if it has `.claude/memory/`;
+(2) the relative path in `.claude/engram-root`, if that pin file exists;
+(3) a probe one level down. This makes the standard workflow work — Claude Code
+launched from a PARENT directory whose child repo holds the real install, where
+a subdirectory's `settings.json` is never honored. The installers gained
+`-Satellite <childRelPath>` / `--satellite <childRelPath>`, which installs
+tooling, hook registrations, a CLAUDE.md pointer block and the pin at the parent
+while installing **no memory there**.
+
+1. **Refresh the tooling** — skip if the refresh that delivered this file already
+   did it. Otherwise re-run the installer from the engine checkout against the
+   repo that owns the memory:
+
+   ```
+   powershell -NoProfile -File install.ps1 -Target <repo> -RefreshTooling
+   ./install.sh --target <repo> --refresh-tooling
+   ```
+
+   Old hooks/skills keep working (rung 1 of the order is the pre-v8 behavior), so
+   an un-refreshed install is degraded, not broken.
+
+2. **Satellite the parent, if you work from one** — skip unless Claude Code is
+   normally launched from a directory ABOVE the repo holding `.claude/memory/`.
+   Otherwise run, from that parent:
+
+   ```
+   powershell -NoProfile -File install.ps1 -Target <parent> -Satellite <childRelPath> [-AutoCapture]
+   ./install.sh --target <parent> --satellite <childRelPath> [--auto-capture]
+   ```
+
+   Check-first: the run is idempotent (the pin is overwritten with the same
+   content and the CLAUDE.md block is re-rendered in place), so a repeat is a
+   no-op. It refuses to run if `<parent>/<childRelPath>/.claude/memory/MEMORY.md`
+   is absent, and rejects `-Modules`/`--modules` (modules write memory).
+   Never create a second `.claude/memory/` at the parent — the satellite's whole
+   point is one memory, one home.
+
+3. **Write `8` to `.claude/memory/VERSION`** — the only memory-file write in this
+   hop.
+
+4. **Forward-only** — do not rewrite existing cards, journal entries or ADRs to
+   mention the pin; nothing about their content changed.
 

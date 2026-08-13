@@ -13,7 +13,7 @@ If no fact was provided, ask the user what to save and wait — do not guess.
 
 ## 0. Guard
 
-If `.claude/memory/` does not exist in this repo, say "Engram is not installed here (no .claude/memory/)" and stop.
+**Step 0 — resolve `<ROOT>`.** `.claude/memory/MEMORY.md` exists here → `<ROOT>` = `.`. Else if `.claude/engram-root` exists → `<ROOT>` = the relative path on its first line. Else if `*/.claude/memory/MEMORY.md` matches exactly one directory one level down → `<ROOT>` = that directory; several matches → pick the one the current work concerns and say so. No match → say "Engram is not installed here (no .claude/memory/)" and stop. Every memory path below means `<ROOT>/.claude/memory/...`, and every `git` command runs as `git -C <ROOT> ...`.
 
 ## 1. Route the fact
 

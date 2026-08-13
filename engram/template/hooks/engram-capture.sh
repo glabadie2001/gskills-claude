@@ -11,6 +11,19 @@
 # are extracted with grep/sed (same approach as engram-brief.sh). Any parse
 # failure degrades to a silent exit 0.
 
+# Windows (Git Bash/MSYS): process spawns can cost ~1s each there, eating the
+# hook timeout budget before the headless draft even starts. Hand off to the
+# PowerShell twin (same dispatch as engram-brief.sh); falls through to bash if
+# anything is off.
+case "${OSTYPE:-}" in
+    msys*|cygwin*)
+        _psf="${0%/*}/engram-capture.ps1"
+        if [ -f "$_psf" ] && command -v powershell.exe >/dev/null 2>&1; then
+            command -v cygpath >/dev/null 2>&1 && _psf=$(cygpath -w "$_psf")
+            exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$_psf"
+        fi ;;
+esac
+
 # Model for the headless draft. Default: fast + cheap.
 # Bump to a sonnet model (e.g. claude-sonnet-4-6) for richer drafts.
 MODEL="claude-haiku-4-5"
@@ -38,6 +51,34 @@ main() {
     [ -n "$root" ] || root="$cwd_val"
     [ -n "$root" ] || root="$PWD"
     root=${root//\\\\/\\}
+
+    # ---------- locate the Engram memory (root itself, then pin file, then one
+    # level down) ----------
+    # Nested: Claude launched in a PARENT of the Engram-fied repo -> a pin file
+    # (.claude/engram-root, written by the installer) or a one-level-down probe
+    # (statusline's algorithm) resolves the child, so the journal write lands
+    # there. An invalid/dangling pin falls through to the probe rather than
+    # failing hard.
+    if [ ! -f "$root/.claude/memory/MEMORY.md" ]; then
+        local pin_file="$root/.claude/engram-root" pin_line="" pl
+        if [ -f "$pin_file" ]; then
+            while IFS= read -r pl || [ -n "$pl" ]; do
+                pl=${pl%$'\r'}
+                pl=$(printf '%s' "$pl" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+                [ -n "$pl" ] && { pin_line="$pl"; break; }
+            done < "$pin_file"
+        fi
+        if [ -n "$pin_line" ] && [ -f "$root/$pin_line/.claude/memory/MEMORY.md" ]; then
+            root="$root/$pin_line"
+        else
+            local m first=""
+            for m in "$root"/*/.claude/memory/MEMORY.md; do
+                [ -f "$m" ] || continue
+                [ -n "$first" ] || first="$m"
+            done
+            [ -n "$first" ] && root=${first%/.claude/memory/MEMORY.md}
+        fi
+    fi
 
     # ---------- guard: memory present and initialized ----------
     local mem_dir="$root/.claude/memory"

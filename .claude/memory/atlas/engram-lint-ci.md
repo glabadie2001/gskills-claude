@@ -28,13 +28,17 @@ re-implements the frontmatter parse independently in awk/sed.
 ## Invariants & gotchas
 - The twins must stay byte-identical in findings for identical inputs — every edit to one
   requires the mirrored edit; asserted by convention only, no automated cross-check exists.
-- engram-check.yml is a MANUAL copy-in: the installers never copy `template/scripts` or
-  `template/ci` — a fresh install has zero linting until someone copies them. (Filed as a
-  task: wire scripts into the installer.)
+- engram-check.yml is a MANUAL copy-in: the installers ship `template/scripts` (since
+  2026-08-11, tooling section 4) but never `template/ci` — deliberate, since CI needs
+  `.claude/scripts` and memory committed; the install summary prints the copy-in hint.
 - CI assumes the linter at `.claude/scripts/engram-lint.sh` and needs `fetch-depth: 0` —
   a shallow checkout silently breaks staleness and coverage.
-- version-drift reads "Current tooling version" from `mem-sync/MIGRATIONS.md` (currently 7)
+- version-drift reads "Current tooling version" from `mem-sync/MIGRATIONS.md` (currently 8)
   vs `.claude/memory/VERSION`; missing MIGRATIONS.md = INFO skip, not failure.
+- Root resolution (since 2026-08-11, v8): missing `<root>/.claude/memory/MEMORY.md` →
+  `.claude/engram-root` pin, then one-level probe (sorted, first match), then the existing
+  no-memory finding — so linting from a satellite parent hits the child. `-Root`/`--root`
+  still overrides the starting point.
 - dead-mdlink escalates to ERROR under `sweeps/` (campaign hierarchy), WARN elsewhere;
   `sweeps/artifacts/` is skipped as frozen history.
 

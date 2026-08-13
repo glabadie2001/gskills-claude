@@ -4,10 +4,17 @@
 # Usage:
 #   ./install.sh --target /path/to/project [--refresh-tooling] [--modules bug-sweep]
 #   ./install.sh /path/to/project
+#   ./install.sh --target /path/to/parent --satellite child-repo
 #
 # --modules applies opt-in modules (see modules/README.md): additive and
 # idempotent, so it also works on an EXISTING install (memory otherwise
 # untouched; without --refresh-tooling, tooling is untouched too).
+#
+# --satellite <childRelPath> installs SATELLITE tooling into a PARENT directory
+# whose child repo already holds the real Engram install. Claude Code never
+# honors a subdirectory's settings.json, so a session launched from the parent
+# needs the parent's own skills/hooks/scripts/settings plus a .claude/engram-root
+# pin pointing at the child -- but NEVER a memory of its own.
 #
 # Settings merge strategy: uses jq when available. Without jq, an EXISTING
 # settings.json is never touched (manual-merge instructions are printed
@@ -20,6 +27,7 @@ target=""
 refresh=0
 autocapture=0
 modules=""
+satellite=""
 while [ $# -gt 0 ]; do
     case "$1" in
         -t|--target|-Target)
@@ -32,8 +40,11 @@ while [ $# -gt 0 ]; do
         -m|--modules|-Modules)
             [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
             modules="$2"; shift 2 ;;
+        -s|--satellite|-Satellite)
+            [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
+            satellite="$2"; shift 2 ;;
         -h|--help)
-            echo "Usage: install.sh --target <path> [--refresh-tooling] [--auto-capture] [--modules bug-sweep[,name2]]"; exit 0 ;;
+            echo "Usage: install.sh --target <path> [--refresh-tooling] [--auto-capture] [--modules bug-sweep[,name2]] [--satellite <childRelPath>]"; exit 0 ;;
         -*)
             echo "ERROR: unknown option: $1" >&2; exit 1 ;;
         *)
@@ -61,13 +72,62 @@ if [ ! -d "$target" ]; then
 fi
 target=$(cd "$target" && pwd)
 
+# ---------- satellite mode: validate + normalize the child path ----------
+# A satellite is a PARENT directory Claude Code is launched from while the real
+# install (and the only .claude/memory) lives in a CHILD repo one level down.
+# The canonical nested-root resolution order shared by hooks/skills/lint is:
+# the root itself -> the .claude/engram-root pin -> a one-level-down probe.
+# This block only VALIDATES; sections 1/4b/6/7/9 below carry the behavior.
+is_satellite=0
+child_rel=""
+child_dir=""
+if [ -n "$satellite" ]; then
+    child_rel=$(printf '%s' "$satellite" | tr '\\' '/')
+    while :; do
+        case "$child_rel" in
+            */) child_rel="${child_rel%/}" ;;
+            *)  break ;;
+        esac
+    done
+    case "$child_rel" in
+        "")
+            echo "ERROR: --satellite requires a non-empty child path relative to --target." >&2
+            exit 1 ;;
+        /*|[A-Za-z]:*)
+            echo "ERROR: --satellite must be RELATIVE to --target (got an absolute path: $satellite)." >&2
+            exit 1 ;;
+    esac
+    child_dir="$target/$child_rel"
+    if [ ! -f "$child_dir/.claude/memory/MEMORY.md" ]; then
+        echo "ERROR: no Engram memory at $child_dir/.claude/memory/MEMORY.md" >&2
+        echo "       --satellite only wires up the PARENT of an existing install - run a normal install in the child first:" >&2
+        echo "       ./install.sh --target \"$child_dir\"" >&2
+        exit 1
+    fi
+    if [ -n "$modules" ]; then
+        echo "ERROR: --modules cannot be combined with --satellite (modules write memory; a satellite has none)." >&2
+        echo "       Apply the module to the child instead: ./install.sh --target \"$child_dir\" --modules $modules" >&2
+        exit 1
+    fi
+    is_satellite=1
+fi
+
 echo "Engram installer"
 echo "  engine: $engine_root"
 echo "  target: $target"
+if [ "$is_satellite" = 1 ]; then
+    echo "  mode:   SATELLITE - memory root is $child_rel (no memory installed here)"
+fi
 echo ""
 
 # ---------- git check (warn only) ----------
-if [ ! -e "$target/.git" ]; then
+if [ "$is_satellite" = 1 ]; then
+    # The satellite parent may not be a repo at all; staleness is computed
+    # against the CHILD, so that is what has to be a git repo.
+    if [ ! -e "$child_dir/.git" ]; then
+        echo "WARNING: satellite child $child_rel is not a git repo: staleness tracking will be disabled until git init." >&2
+    fi
+elif [ ! -e "$target/.git" ]; then
     echo "WARNING: target is not a git repo: staleness tracking will be disabled until git init." >&2
 fi
 
@@ -75,6 +135,7 @@ claude_dir="$target/.claude"
 mem_target="$claude_dir/memory"
 skills_target="$claude_dir/skills"
 hooks_target="$claude_dir/hooks"
+scripts_target="$claude_dir/scripts"
 settings_path="$claude_dir/settings.json"
 
 # ---------- modules: applier (see modules/README.md) ----------
@@ -141,9 +202,11 @@ apply_modules() {
 }
 
 # ---------- never clobber memory ----------
+# Satellite mode never seeds or touches memory at all, so the guard below (which
+# exists to protect an existing memory from re-seeding) does not apply to it.
 memory_present=0
 [ -f "$mem_target/MEMORY.md" ] && memory_present=1
-if [ "$memory_present" = 1 ] && [ "$refresh" != 1 ]; then
+if [ "$memory_present" = 1 ] && [ "$refresh" != 1 ] && [ "$is_satellite" != 1 ]; then
     if [ -n "$modules" ]; then
         # Module-only application onto an existing install: memory is only
         # ever ADDED to (the applier never clobbers), tooling untouched.
@@ -153,14 +216,20 @@ if [ "$memory_present" = 1 ] && [ "$refresh" != 1 ]; then
         echo "Module application complete. Memory and tooling otherwise untouched."
         exit 0
     fi
-    echo "Engram already installed (memory present) - refusing to touch .claude/memory. Use --refresh-tooling to update skills/hooks only, or --modules <name> to add a module."
+    echo "Engram already installed (memory present) - refusing to touch .claude/memory. Use --refresh-tooling to update skills/hooks/scripts only, or --modules <name> to add a module."
     exit 0
 fi
 
 mkdir -p "$claude_dir"
 
-# ---------- 1. memory ----------
-if [ "$memory_present" = 1 ]; then
+# ---------- 1. memory (skipped entirely in satellite mode) ----------
+if [ "$is_satellite" = 1 ]; then
+    if [ "$memory_present" = 1 ]; then
+        echo "WARNING: satellite target has its own .claude/memory - left untouched, but a satellite should not have one (its memory root is $child_rel)." >&2
+    else
+        echo "  - memory: skipped - satellite install (memory lives in $child_rel/.claude/memory/)."
+    fi
+elif [ "$memory_present" = 1 ]; then
     echo "  - memory: present - left untouched (refresh-tooling mode)."
 else
     mkdir -p "$mem_target"
@@ -176,6 +245,9 @@ else
 fi
 
 # ---------- 2. skills (tooling: overwrite allowed) ----------
+# Satellite parents in the wild have .claude/skills entries that are Windows
+# junctions into the child's skills dir. cp -R writes THROUGH a junction without
+# erroring, and the content is identical either way, so no special-casing here.
 skills_source="$template_dir/skills"
 if [ -d "$skills_source" ] && [ -n "$(ls -A "$skills_source" 2>/dev/null)" ]; then
     note=""
@@ -200,7 +272,29 @@ else
     echo "WARNING: template/hooks is missing or empty - skipping hooks." >&2
 fi
 
-# ---------- 4. merge hooks into settings.json (bash-shell hook variant) ----------
+# ---------- 4. scripts (tooling: overwrite allowed) ----------
+scripts_source="$template_dir/scripts"
+if [ -d "$scripts_source" ] && [ -n "$(ls -A "$scripts_source" 2>/dev/null)" ]; then
+    note=""
+    [ -d "$scripts_target" ] && note=" (existing files overwritten)"
+    mkdir -p "$scripts_target"
+    cp -R "$scripts_source/." "$scripts_target/"
+    chmod +x "$scripts_target/engram-lint.sh" 2>/dev/null || true
+    echo "  - scripts: copied to .claude/scripts/$note"
+else
+    echo "WARNING: template/scripts is missing or empty - skipping scripts." >&2
+fi
+
+# ---------- 4b. engram-root pin (satellite only) ----------
+# One line, forward slashes, trailing LF: the middle rung of the nested-root
+# resolution order that hooks/skills/lint share (root itself -> this pin ->
+# one-level-down probe). Overwritten freely, so re-runs are idempotent.
+if [ "$is_satellite" = 1 ]; then
+    printf '%s\n' "$child_rel" > "$claude_dir/engram-root"
+    echo "  - pin: .claude/engram-root -> $child_rel"
+fi
+
+# ---------- 5. merge hooks into settings.json (bash-shell hook variant) ----------
 # Single-quoted so ${CLAUDE_PROJECT_DIR} stays literal (Claude Code substitutes it).
 sessionstart_entry_json='{
   "hooks": [
@@ -376,20 +470,76 @@ if [ "$autocapture" != 1 ]; then
     echo "Auto-capture available: re-run with --auto-capture to enable transcript-draft journaling (PreCompact + SessionEnd)."
 fi
 
-# ---------- 5. CLAUDE.md ----------
+# ---------- 6. CLAUDE.md ----------
+# Normal mode: append-if-marker-absent (a present block is never rewritten).
+# Satellite mode: the block carries the child path, so it must CONVERGE - an
+# existing BEGIN/END block is replaced wholesale by the freshly rendered one
+# (identical content = no-op rewrite, so re-runs stay byte-identical).
 claude_md="$target/CLAUDE.md"
-snippet="$template_dir/CLAUDE-snippet.md"
-if [ -f "$claude_md" ] && grep -q 'BEGIN ENGRAM' "$claude_md" 2>/dev/null; then
-    echo "  - CLAUDE.md: Engram block already present - unchanged."
-else
-    if [ -f "$claude_md" ] && [ -s "$claude_md" ] && [ -n "$(tail -c 1 "$claude_md" 2>/dev/null)" ]; then
-        printf '\n' >> "$claude_md"    # ensure trailing newline before appending
+if [ "$is_satellite" = 1 ]; then
+    snippet="$template_dir/CLAUDE-snippet-satellite.md"
+    # Render {{CHILD}} with index/substr (not gsub) so no character in the child
+    # path is treated as a regex or replacement escape.
+    rendered=$(mktemp)
+    awk -v child="$child_rel" '
+        {
+            n = index($0, "{{CHILD}}")
+            while (n > 0) {
+                $0 = substr($0, 1, n - 1) child substr($0, n + 9)
+                n = index($0, "{{CHILD}}")
+            }
+            print
+        }' "$snippet" > "$rendered"
+    if [ -f "$claude_md" ] && grep -q '<!-- BEGIN ENGRAM' "$claude_md" 2>/dev/null; then
+        if grep -q '<!-- END ENGRAM -->' "$claude_md" 2>/dev/null; then
+            block=$(mktemp)
+            awk '/<!-- BEGIN ENGRAM/ { f = 1 } f { print }' "$rendered" > "$block"
+            tmp=$(mktemp)
+            awk -v blockfile="$block" '
+                /<!-- BEGIN ENGRAM/ && !swapped { ins = 1; swapped = 1
+                    while ((getline l < blockfile) > 0) print l
+                    next }
+                ins && /<!-- END ENGRAM -->/ { ins = 0; next }
+                !ins { print }
+            ' "$claude_md" > "$tmp"
+            if cmp -s "$tmp" "$claude_md"; then
+                rm -f "$tmp"
+                echo "  - CLAUDE.md: Engram satellite block already current - unchanged."
+            else
+                mv "$tmp" "$claude_md"
+                echo "  - CLAUDE.md: Engram satellite block replaced (memory root $child_rel)."
+            fi
+            rm -f "$block"
+        else
+            echo "WARNING: CLAUDE.md has a BEGIN ENGRAM marker with no matching END ENGRAM - NOT modifying it. Repair or remove the block, then re-run." >&2
+        fi
+    else
+        if [ -f "$claude_md" ] && [ -s "$claude_md" ] && [ -n "$(tail -c 1 "$claude_md" 2>/dev/null)" ]; then
+            printf '\n' >> "$claude_md"    # ensure trailing newline before appending
+        fi
+        cat "$rendered" >> "$claude_md"
+        echo "  - CLAUDE.md: appended Engram satellite block (memory root $child_rel)."
     fi
-    cat "$snippet" >> "$claude_md"
-    echo "  - CLAUDE.md: appended Engram block."
+    rm -f "$rendered"
+else
+    snippet="$template_dir/CLAUDE-snippet.md"
+    if [ -f "$claude_md" ] && grep -q 'BEGIN ENGRAM' "$claude_md" 2>/dev/null; then
+        echo "  - CLAUDE.md: Engram block already present - unchanged."
+    else
+        if [ -f "$claude_md" ] && [ -s "$claude_md" ] && [ -n "$(tail -c 1 "$claude_md" 2>/dev/null)" ]; then
+            printf '\n' >> "$claude_md"    # ensure trailing newline before appending
+        fi
+        cat "$snippet" >> "$claude_md"
+        echo "  - CLAUDE.md: appended Engram block."
+    fi
 fi
 
-# ---------- 6. append-only union-merge (prevents merge conflicts in teams) ----------
+# ---------- 7. append-only union-merge (prevents merge conflicts in teams) ----------
+# Skipped for satellites: the rules cover .claude/memory paths that only exist in
+# the child, and the satellite parent may not be a git repo at all.
+if [ "$is_satellite" = 1 ]; then
+    echo "  - .gitattributes: skipped - satellite install (union-merge rules belong to $child_rel)."
+else
 ga_path="$target/.gitattributes"
 ga_added=0
 if ! grep -q '\.claude/memory/journal/' "$ga_path" 2>/dev/null; then
@@ -419,8 +569,9 @@ if [ "$ga_added" -eq 1 ]; then
 else
     echo "  - .gitattributes: union-merge rules already present - unchanged."
 fi
+fi
 
-# ---------- 7. status line (user-level, never clobbers) ----------
+# ---------- 8. status line (user-level, never clobbers) ----------
 # The status line is a per-user singleton: a project-level statusLine would
 # override every teammate's personal one, so it is registered in the USER's
 # ~/.claude/settings.json instead. The script locates the project from the
@@ -468,17 +619,32 @@ EOF
     fi
 fi
 
-# ---------- 8. modules ----------
+# ---------- 9. modules ----------
+# Modules write memory, so --satellite + --modules is rejected up front (above);
+# $modules is therefore always empty here in satellite mode.
 apply_modules
 
 # ---------- summary ----------
 echo ""
-echo "Engram installed into $target"
-echo "Next steps:"
-echo "  1. Open Claude Code in the target and run /mem-init to bootstrap memory from the codebase."
-echo "  2. New sessions will start with an Engram brief (SessionStart hook)."
-echo "  3. The status line at the bottom of Claude Code shows tasks / atlas freshness / journal age."
-if [ "$refresh" = "1" ]; then
-    echo "  4. Tooling refreshed on an existing install: run /mem-sync in the target - it walks any pending memory-format migrations (see .claude/skills/mem-sync/MIGRATIONS.md)."
+if [ "$is_satellite" = 1 ]; then
+    echo "Engram SATELLITE installed into $target"
+    echo "  memory root: $child_rel (pinned in .claude/engram-root; no memory installed here)"
+    echo "Next steps:"
+    echo "  1. Launch Claude Code from $target - the brief, skills and lint resolve memory through the pin."
+    echo "  2. Every memory write lands in $child_rel/.claude/memory/ - commit it from that repo (git -C $child_rel)."
+    echo "  3. The status line at the bottom of Claude Code shows tasks / atlas freshness / journal age."
+    if [ "$refresh" = "1" ]; then
+        echo "  4. Tooling refreshed: run /mem-sync - it walks any pending memory-format migrations (see .claude/skills/mem-sync/MIGRATIONS.md)."
+    fi
+else
+    echo "Engram installed into $target"
+    echo "Next steps:"
+    echo "  1. Open Claude Code in the target and run /mem-init to bootstrap memory from the codebase."
+    echo "  2. New sessions will start with an Engram brief (SessionStart hook)."
+    echo "  3. The status line at the bottom of Claude Code shows tasks / atlas freshness / journal age."
+    echo "  Optional CI: copy engram/template/ci/engram-check.yml into .github/workflows/ (needs .claude/scripts/ and .claude/memory/ committed; on Windows run .claude/scripts/engram-lint.ps1 locally - the .sh twin is slow under Git Bash)."
+    if [ "$refresh" = "1" ]; then
+        echo "  4. Tooling refreshed on an existing install: run /mem-sync in the target - it walks any pending memory-format migrations (see .claude/skills/mem-sync/MIGRATIONS.md)."
+    fi
 fi
 exit 0

@@ -11,7 +11,7 @@ File: `.claude/memory/architecture.md`. Mode: $ARGUMENTS (no argument → **stat
 
 ## 0. Guards
 
-- `.claude/memory/MEMORY.md` missing → stop: "Engram not installed." Contains `STATUS: EMPTY` → stop: "Run /mem-init first."
+- **Step 0 — resolve `<ROOT>`.** `.claude/memory/MEMORY.md` exists here → `<ROOT>` = `.`. Else if `.claude/engram-root` exists → `<ROOT>` = the relative path on its first line. Else if `*/.claude/memory/MEMORY.md` matches exactly one directory one level down → `<ROOT>` = that directory; several matches → pick the one the current work concerns and say so. No match → stop: "Engram not installed." Contains `STATUS: EMPTY` → stop: "Run /mem-init first." Every path below means `<ROOT>/.claude/memory/...`, and every `git` command runs as `git -C <ROOT> ...`.
 - `architecture.md` missing (memory predates v4 — /mem-sync's migration walk normally creates it) → create it from the skeleton at the bottom of this skill, then continue in `update` mode to draw the Live diagram.
 - Capture once: `git rev-parse --short HEAD` → `<HEAD>`, and today's date. Not a git repo → staleness checks are moot; still maintain the diagrams, keep `verified: 0000000`.
 
@@ -78,7 +78,7 @@ The Live diagram is testimony; the import graph is forensics. Diffing them makes
 
 For big refactors: what did the branch do to the shape?
 
-1. For each rev: prefer its committed diagram (`git show <rev>:.claude/memory/architecture.md`,
+1. For each rev: prefer its committed diagram (`git -C <ROOT> show <rev>:.claude/memory/architecture.md`,
    Live block). If the rev predates Engram or its diagram was stale, run the `extract` recipe
    against a worktree of that rev instead — never against the working tree of the wrong branch.
 2. `render` one diff section: `before` = base graph, `source` = head graph, labels = rev names.

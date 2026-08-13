@@ -56,21 +56,38 @@ main() {
     # against it, exactly as if the session ran there.
     local sub_label=""
     if [ ! -f "$root/.claude/memory/MEMORY.md" ]; then
-        local m hits=0 first=""
-        for m in "$root"/*/.claude/memory/MEMORY.md; do
-            [ -f "$m" ] || continue
-            hits=$((hits + 1))
-            [ -n "$first" ] || first="$m"
-        done
-        if [ -n "$first" ]; then
-            root=${first%/.claude/memory/MEMORY.md}
+        # Pin file: the installer may write .claude/engram-root pointing at a
+        # child dir (relative path, first non-empty line) when Engram lives one
+        # level down from the launch root. A dangling/invalid pin falls through
+        # to the probe below rather than failing hard.
+        local pin_file="$root/.claude/engram-root" pin_line="" pl
+        if [ -f "$pin_file" ]; then
+            while IFS= read -r pl || [ -n "$pl" ]; do
+                pl=${pl%$'\r'}
+                pl=$(printf '%s' "$pl" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+                [ -n "$pl" ] && { pin_line="$pl"; break; }
+            done < "$pin_file"
+        fi
+        if [ -n "$pin_line" ] && [ -f "$root/$pin_line/.claude/memory/MEMORY.md" ]; then
+            root="$root/$pin_line"
             sub_label=$(basename "$root")
-            [ "$hits" -gt 1 ] && sub_label="$sub_label +$((hits - 1))"
-        elif [ -n "$cwd_val" ] && [ "$cwd_val" != "$root" ] \
-            && [ -f "$cwd_val/.claude/memory/MEMORY.md" ]; then
-            root="$cwd_val"
         else
-            exit 0    # no Engram here -> blank status line
+            local m hits=0 first=""
+            for m in "$root"/*/.claude/memory/MEMORY.md; do
+                [ -f "$m" ] || continue
+                hits=$((hits + 1))
+                [ -n "$first" ] || first="$m"
+            done
+            if [ -n "$first" ]; then
+                root=${first%/.claude/memory/MEMORY.md}
+                sub_label=$(basename "$root")
+                [ "$hits" -gt 1 ] && sub_label="$sub_label +$((hits - 1))"
+            elif [ -n "$cwd_val" ] && [ "$cwd_val" != "$root" ] \
+                && [ -f "$cwd_val/.claude/memory/MEMORY.md" ]; then
+                root="$cwd_val"
+            else
+                exit 0    # no Engram here -> blank status line
+            fi
         fi
     fi
     local mem="$root/.claude/memory"

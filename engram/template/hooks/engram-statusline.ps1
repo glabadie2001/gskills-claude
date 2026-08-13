@@ -5,9 +5,10 @@
 # at the bottom of the UI: open task counts, atlas freshness, journal recency
 # for the CURRENT project. Prints nothing in projects without Engram.
 #
-# On Windows, Claude Code runs status line commands through Git Bash when it is
-# installed, so the bash twin is the default registration. Use THIS script only
-# when Git Bash is absent, by swapping the user-settings statusLine command to:
+# THIS script is the default registration on Windows (install.ps1 registers it;
+# install.sh registers the bash twin on macOS/Linux). Git Bash process spawns
+# can cost ~1s each on Windows, which puts the bash twin's atlas pass past the
+# status-line timeout - so the per-OS dispatch happens at install time:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File "C:/Users/<you>/.claude/engram-statusline.ps1"
 #
 # The atlas staleness pass runs git per card, so counts are cached in $env:TEMP
@@ -52,21 +53,47 @@ try {
     # against it, exactly as if the session ran there.
     $subLabel = ''
     if (-not (Test-Path -LiteralPath (Join-Path $root '.claude\memory\MEMORY.md'))) {
-        $nested = @()
-        try {
-            $nested = @(Get-ChildItem -LiteralPath $root -Directory |
-                Sort-Object Name |
-                Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName '.claude\memory\MEMORY.md') })
-        } catch { }
-        if ($nested.Count -gt 0) {
-            $root = $nested[0].FullName
-            $subLabel = $nested[0].Name
-            if ($nested.Count -gt 1) { $subLabel = $subLabel + ' +' + ($nested.Count - 1) }
-        } elseif ($cwdVal -and ($cwdVal -ne $root) -and
-            (Test-Path -LiteralPath (Join-Path $cwdVal '.claude\memory\MEMORY.md'))) {
-            $root = $cwdVal
+        # Pin file: the installer may write .claude\engram-root pointing at a
+        # child dir (relative path, first non-empty line) when Engram lives one
+        # level down from the launch root. A dangling/invalid pin falls through
+        # to the probe below rather than failing hard.
+        $pinLine = ''
+        $pinFile = Join-Path $root '.claude\engram-root'
+        if (Test-Path -LiteralPath $pinFile -PathType Leaf) {
+            try {
+                foreach ($pl in [System.IO.File]::ReadAllLines($pinFile)) {
+                    $t = $pl.Trim()
+                    if ($t) { $pinLine = $t; break }
+                }
+            } catch { }
+        }
+        $pinTarget = $null
+        if ($pinLine) {
+            $candidate = Join-Path $root $pinLine
+            if (Test-Path -LiteralPath (Join-Path $candidate '.claude\memory\MEMORY.md')) {
+                $pinTarget = $candidate
+            }
+        }
+        if ($pinTarget) {
+            $root = $pinTarget
+            $subLabel = Split-Path -Leaf $root
         } else {
-            exit 0   # no Engram -> blank
+            $nested = @()
+            try {
+                $nested = @(Get-ChildItem -LiteralPath $root -Directory |
+                    Sort-Object Name |
+                    Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName '.claude\memory\MEMORY.md') })
+            } catch { }
+            if ($nested.Count -gt 0) {
+                $root = $nested[0].FullName
+                $subLabel = $nested[0].Name
+                if ($nested.Count -gt 1) { $subLabel = $subLabel + ' +' + ($nested.Count - 1) }
+            } elseif ($cwdVal -and ($cwdVal -ne $root) -and
+                (Test-Path -LiteralPath (Join-Path $cwdVal '.claude\memory\MEMORY.md'))) {
+                $root = $cwdVal
+            } else {
+                exit 0   # no Engram -> blank
+            }
         }
     }
     $memDir = Join-Path $root '.claude\memory'
@@ -100,7 +127,7 @@ try {
                 if ($l -like '## Now*') { $sect = 'now'; continue }
                 if ($l -like '## Next*') { $sect = 'next'; continue }
                 if ($l -like '## *') { $sect = 'other'; continue }
-                if ($l -like '- *' -or $l -like '* *') {
+                if ($l -like '- *' -or $l -like '[*] *') {
                     if ($sect -eq 'now') { $nowN++ }
                     elseif ($sect -eq 'next') { $nextN++ }
                 }

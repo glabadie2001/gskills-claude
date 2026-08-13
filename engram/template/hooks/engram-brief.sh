@@ -12,6 +12,20 @@
 # Failure philosophy: every failure mode (bad JSON, no git, unreadable file,
 # malformed frontmatter) silently skips that section. Always exits 0.
 
+# Windows (Git Bash/MSYS): process spawns can cost ~1s each there, which blows
+# the 30s hook timeout. Hand off to the PowerShell twin, which does the same
+# work in seconds. The committed settings.json stays cross-platform ("shell":
+# "bash" everywhere); this dispatch is the per-OS branch. Kept spawn-free
+# except cygpath + the exec itself; falls through to bash if anything is off.
+case "${OSTYPE:-}" in
+    msys*|cygwin*)
+        _psf="${0%/*}/engram-brief.ps1"
+        if [ -f "$_psf" ] && command -v powershell.exe >/dev/null 2>&1; then
+            command -v cygpath >/dev/null 2>&1 && _psf=$(cygpath -w "$_psf")
+            exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$_psf"
+        fi ;;
+esac
+
 # Output buffer (bash 3.2 compatible: no mapfile, no associative arrays).
 OUT_LINES=()
 emit() { OUT_LINES+=("$1"); }
@@ -43,6 +57,39 @@ main() {
     [ -n "$root" ] || root="$cwd_val"
     [ -n "$root" ] || root="$PWD"
 
+    # ---------- locate the Engram memory (root itself, then pin file, then one
+    # level down) ----------
+    # Nested: Claude launched in a PARENT of the Engram-fied repo -> a pin file
+    # (.claude/engram-root, written by the installer) or a one-level-down probe
+    # (statusline's algorithm) resolves the child; sub_label tags the brief
+    # header so it's clear which project this is. An invalid/dangling pin falls
+    # through to the probe rather than failing hard.
+    local sub_label=""
+    if [ ! -f "$root/.claude/memory/MEMORY.md" ]; then
+        local pin_file="$root/.claude/engram-root" pin_line="" pl
+        if [ -f "$pin_file" ]; then
+            while IFS= read -r pl || [ -n "$pl" ]; do
+                pl=${pl%$'\r'}
+                pl=$(printf '%s' "$pl" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+                [ -n "$pl" ] && { pin_line="$pl"; break; }
+            done < "$pin_file"
+        fi
+        if [ -n "$pin_line" ] && [ -f "$root/$pin_line/.claude/memory/MEMORY.md" ]; then
+            root="$root/$pin_line"
+            sub_label=$(basename "$root")
+        else
+            local m first=""
+            for m in "$root"/*/.claude/memory/MEMORY.md; do
+                [ -f "$m" ] || continue
+                [ -n "$first" ] || first="$m"
+            done
+            if [ -n "$first" ]; then
+                root=${first%/.claude/memory/MEMORY.md}
+                sub_label=$(basename "$root")
+            fi
+        fi
+    fi
+
     local mem_dir="$root/.claude/memory"
     local memory_md="$mem_dir/MEMORY.md"
     [ -f "$memory_md" ] || exit 0    # no Engram here -> silent
@@ -69,7 +116,9 @@ EOF_JTAIL
     fi
 
     # ---------- session brief (startup / resume / clear / anything else) ----------
-    emit '## Engram session brief'
+    local brief_header='## Engram session brief'
+    [ -n "$sub_label" ] && brief_header="$brief_header ($sub_label)"
+    emit "$brief_header"
     emit 'Details live in .claude/memory/ (MEMORY.md is the index).'
     emit ''
 

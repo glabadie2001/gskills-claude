@@ -7,7 +7,10 @@
 
 ## Protocol — how to use this memory (every session)
 
-1. **Read before exploring.** Before opening code to answer "how does X work", check the
+1. **Read before exploring.** A question whose answer lives in a memory layer ("how does
+   X work", "why is it like this", "what was tried") routes through `/mem-recall`; a
+   question a live query answers authoritatively ("did we push X?" → git) is answered
+   from that tool directly, with no recall event. Before opening code, check the
    Atlas below. Freshness is LIVE in the session brief (computed from git at startup);
    the table's `✓` is only as of the last sync. Fresh card → trust it. Stale/unverified
    card → use it as a map: verify claims you rely on against code and fix wrong ones in

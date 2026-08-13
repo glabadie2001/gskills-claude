@@ -211,10 +211,21 @@ back. `gotchas.md`: dated bullets with file refs.
   is a per-user singleton, and a project-level entry would stomp every teammate's
   personal status line. The script self-locates the project from the JSON payload Claude
   Code pipes to it, so one user-level registration serves every Engram-fied repo and
-  renders blank in projects without memory. Nested layouts work too: when Claude is
-  launched in a parent folder of the Engram-fied repo, the script probes one directory
-  level down (then the session cwd) and prefixes the readout with the subdir name —
-  `🧠 app: 2 now · …` — resolving git and card paths against the nested root.
+  renders blank in projects without memory.
+
+- **Nested layouts (satellite installs)** — sessions are often launched from a *parent*
+  folder of the Engram-fied repo, and Claude Code never honors a subdirectory's
+  `settings.json` hooks. Every component therefore shares one resolution order: the root
+  itself (`.claude/memory/MEMORY.md` present) → a `.claude/engram-root` pin file (first
+  line = relative path to the child, written by the installer's satellite mode) → a probe
+  one directory level down for `*/.claude/memory/MEMORY.md` (first match, extras noted)
+  → not installed. The hooks and lint scripts implement it in code; the six skills state
+  it as their Step 0 (`git -C <ROOT>`, memory at `<ROOT>/.claude/memory/`); the status
+  line prefixes its readout with the subdir name — `🧠 app: 2 now · …`. The installer's
+  `-Satellite <child>`/`--satellite <child>` mode outfits the parent: tooling + hook
+  registrations + the pin + a CLAUDE.md pointer snippet, but never a memory of its own.
+  A CLAUDE.md pointer *alone* is not enough — prose loses to the skills' hard guard;
+  the pin/probe is what makes the redirect real.
 
 One cross-platform hook entry is registered in `.claude/settings.json` (bash flavor — Git
 Bash on Windows, native bash elsewhere — so the committed settings work for a whole team);
@@ -264,8 +275,10 @@ Two structural choices follow from how the numbers will actually be used:
   problem.
 
 Mechanics: one append-only `metrics/events.jsonl` (grep-able, diffable, never loaded
-into session context — only tallied), plus a generated `metrics/scorecard.md` that
-`/mem-sync` overwrites (≤40 lines; derived data, not a knowledge layer). Events past
+into session context — only tallied), plus a generated `metrics/scorecard.md` rebuilt
+by the deterministic `engram-scorecard` script twins that `/mem-sync` runs (≤40 lines;
+derived data, not a knowledge layer — the model never hand-computes the tables, it
+only reads the result and judges semantic repeat-misses). Events past
 ~400 lines / 90 days move verbatim to `metrics/archive/` — moved, never deleted, because
 the replay corpus is only useful intact. Two honesty rules: events record **observable
 facts only** (counts, classifications traceable to tool calls), never the model's

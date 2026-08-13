@@ -6,11 +6,11 @@ when_to_use: Once per repo, right after installing Engram, while MEMORY.md still
 
 # mem-init — bootstrap Engram memory
 
-All paths relative to repo root. Memory lives in `.claude/memory/`.
+All paths in this skill mean `<ROOT>/.claude/memory/...`; `<ROOT>` is resolved in Step 0 below.
 
 ## 0. Guards
 
-1. `.claude/memory/MEMORY.md` must exist. Missing → stop: "Engram not installed — run the installer first."
+1. **Step 0 — resolve `<ROOT>`.** `.claude/memory/MEMORY.md` exists here → `<ROOT>` = `.`. Else if `.claude/engram-root` exists → `<ROOT>` = the relative path on its first line. Else if `*/.claude/memory/MEMORY.md` matches exactly one directory one level down → `<ROOT>` = that directory; several matches → pick the one the current work concerns and say so. No match → stop: "Engram not installed — run the installer first." Every path below means `<ROOT>/.claude/memory/...`, and every `git` command runs as `git -C <ROOT> ...`.
 2. Read MEMORY.md. If it does NOT contain the `STATUS: EMPTY` marker → already initialized. Stop and point the user to `/mem-sync`.
 3. Run `git rev-parse --short HEAD`.
    - Succeeds → capture the short sha ONCE. Every card written this run uses this same sha.

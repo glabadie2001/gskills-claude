@@ -2,10 +2,17 @@
 #
 # Usage:
 #   powershell -NoProfile -File install.ps1 -Target C:\path\to\project [-RefreshTooling] [-Modules bug-sweep]
+#   powershell -NoProfile -File install.ps1 -Target C:\path\to\parent -Satellite child-repo
 #
 # -Modules applies opt-in modules (see modules\README.md): additive and
 # idempotent, so it also works on an EXISTING install (memory otherwise
 # untouched; without -RefreshTooling, tooling is untouched too).
+#
+# -Satellite <childRelPath> installs SATELLITE tooling into a PARENT directory
+# whose child repo already holds the real Engram install. Claude Code never
+# honors a subdirectory's settings.json, so a session launched from the parent
+# needs the parent's own skills/hooks/scripts/settings plus a .claude\engram-root
+# pin pointing at the child -- but NEVER a memory of its own.
 #
 # Windows PowerShell 5.1 compatible (no ??, no ternary, no -AsHashtable).
 # NOTE: source is kept pure ASCII so PS 5.1 reads it correctly without a BOM.
@@ -18,6 +25,8 @@ param(
     [switch]$RefreshTooling,
 
     [switch]$AutoCapture,
+
+    [string]$Satellite = '',
 
     [string[]]$Modules = @()
 )
@@ -40,13 +49,58 @@ if (-not (Test-Path -LiteralPath $Target -PathType Container)) {
 }
 $Target = (Resolve-Path -LiteralPath $Target).Path
 
+# ---------- satellite mode: validate + normalize the child path ----------
+# A satellite is a PARENT directory Claude Code is launched from while the real
+# install (and the only .claude\memory) lives in a CHILD repo one level down.
+# The canonical nested-root resolution order shared by hooks/skills/lint is:
+# the root itself -> the .claude\engram-root pin -> a one-level-down probe.
+# This block only VALIDATES; sections 1/4b/6/7/9 below carry the behavior.
+$isSatellite = $false
+$childRel    = ''
+$childDir    = ''
+if ($Satellite) {
+    $childRel = $Satellite.Trim().TrimEnd('/', '\')
+    if (-not $childRel) {
+        Write-Host "ERROR: -Satellite requires a non-empty child path relative to -Target." -ForegroundColor Red
+        exit 1
+    }
+    if ([System.IO.Path]::IsPathRooted($childRel)) {
+        Write-Host "ERROR: -Satellite must be RELATIVE to -Target (got an absolute path: $Satellite)." -ForegroundColor Red
+        exit 1
+    }
+    $childRel = $childRel -replace '\\', '/'
+    $childDir = Join-Path $Target ($childRel -replace '/', '\')
+    $childMemory = Join-Path $childDir '.claude\memory\MEMORY.md'
+    if (-not (Test-Path -LiteralPath $childMemory -PathType Leaf)) {
+        Write-Host "ERROR: no Engram memory at $childMemory" -ForegroundColor Red
+        Write-Host "       -Satellite only wires up the PARENT of an existing install - run a normal install in the child first:" -ForegroundColor Red
+        Write-Host "       powershell -NoProfile -File install.ps1 -Target `"$childDir`"" -ForegroundColor Red
+        exit 1
+    }
+    if (@($Modules | ForEach-Object { $_ -split ',' } | Where-Object { $_.Trim() }).Count -gt 0) {
+        Write-Host "ERROR: -Modules cannot be combined with -Satellite (modules write memory; a satellite has none)." -ForegroundColor Red
+        Write-Host "       Apply the module to the child instead: install.ps1 -Target `"$childDir`" -Modules <name>" -ForegroundColor Red
+        exit 1
+    }
+    $isSatellite = $true
+}
+
 Write-Host "Engram installer"
 Write-Host "  engine: $engineRoot"
 Write-Host "  target: $Target"
+if ($isSatellite) {
+    Write-Host "  mode:   SATELLITE - memory root is $childRel (no memory installed here)"
+}
 Write-Host ""
 
 # ---------- git check (warn only) ----------
-if (-not (Test-Path (Join-Path $Target '.git'))) {
+if ($isSatellite) {
+    # The satellite parent may not be a repo at all; staleness is computed
+    # against the CHILD, so that is what has to be a git repo.
+    if (-not (Test-Path (Join-Path $childDir '.git'))) {
+        Write-Warning "Satellite child $childRel is not a git repo: staleness tracking will be disabled until git init."
+    }
+} elseif (-not (Test-Path (Join-Path $Target '.git'))) {
     Write-Warning "Target is not a git repo: staleness tracking will be disabled until git init."
 }
 
@@ -54,6 +108,7 @@ $claudeDir    = Join-Path $Target '.claude'
 $memTarget    = Join-Path $claudeDir 'memory'
 $skillsTarget = Join-Path $claudeDir 'skills'
 $hooksTarget  = Join-Path $claudeDir 'hooks'
+$scriptsTarget = Join-Path $claudeDir 'scripts'
 $settingsPath = Join-Path $claudeDir 'settings.json'
 
 # ---------- modules: normalize + applier ----------
@@ -121,8 +176,10 @@ function Install-EngramModule($name) {
 }
 
 # ---------- never clobber memory ----------
+# Satellite mode never seeds or touches memory at all, so the guard below (which
+# exists to protect an existing memory from re-seeding) does not apply to it.
 $memoryPresent = Test-Path -LiteralPath (Join-Path $memTarget 'MEMORY.md')
-if ($memoryPresent -and -not $RefreshTooling) {
+if ($memoryPresent -and -not $RefreshTooling -and -not $isSatellite) {
     if ($Modules.Count -gt 0) {
         # Module-only application onto an existing install: memory is only
         # ever ADDED to (the applier never clobbers), tooling untouched.
@@ -132,7 +189,7 @@ if ($memoryPresent -and -not $RefreshTooling) {
         Write-Host "Module application complete. Memory and tooling otherwise untouched."
         exit 0
     }
-    Write-Host "Engram already installed (memory present) - refusing to touch .claude/memory. Use -RefreshTooling to refresh skills/hooks/settings/CLAUDE.md (memory is never touched), or -Modules <name> to add a module."
+    Write-Host "Engram already installed (memory present) - refusing to touch .claude/memory. Use -RefreshTooling to refresh skills/hooks/scripts/settings/CLAUDE.md (memory is never touched), or -Modules <name> to add a module."
     exit 0
 }
 
@@ -140,8 +197,14 @@ if (-not (Test-Path -LiteralPath $claudeDir)) {
     New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null
 }
 
-# ---------- 1. memory ----------
-if ($memoryPresent) {
+# ---------- 1. memory (skipped entirely in satellite mode) ----------
+if ($isSatellite) {
+    if ($memoryPresent) {
+        Write-Warning "satellite target has its own .claude\memory - left untouched, but a satellite should not have one (its memory root is $childRel)."
+    } else {
+        Write-Step "memory: skipped - satellite install (memory lives in $childRel/.claude/memory/)."
+    }
+} elseif ($memoryPresent) {
     Write-Step "memory: present - left untouched (RefreshTooling mode)."
 } else {
     New-Item -ItemType Directory -Path $memTarget -Force | Out-Null
@@ -162,6 +225,10 @@ if ($memoryPresent) {
 }
 
 # ---------- 2. skills (tooling: overwrite allowed) ----------
+# Satellite parents in the wild have .claude\skills entries that are Windows
+# junctions into the child's skills dir. New-Item -Force and Copy-Item -Recurse
+# both write THROUGH a junction without erroring, and the content is identical
+# either way, so no special-casing is needed here.
 $skillsSource = Join-Path $templateDir 'skills'
 $haveSkills = $false
 if (Test-Path -LiteralPath $skillsSource -PathType Container) {
@@ -196,7 +263,37 @@ if ((Test-Path -LiteralPath $hooksSource -PathType Container) -and
     Write-Warning "template\hooks is missing or empty - skipping hooks."
 }
 
-# ---------- 4. merge hooks into settings.json ----------
+# ---------- 4. scripts (tooling: overwrite allowed) ----------
+$scriptsSource = Join-Path $templateDir 'scripts'
+if ((Test-Path -LiteralPath $scriptsSource -PathType Container) -and
+    (Get-ChildItem -LiteralPath $scriptsSource -Force | Select-Object -First 1)) {
+    $overwriting = Test-Path -LiteralPath $scriptsTarget
+    New-Item -ItemType Directory -Path $scriptsTarget -Force | Out-Null
+    Copy-Item -Path (Join-Path $scriptsSource '*') -Destination $scriptsTarget -Recurse -Force
+    if ($overwriting) {
+        Write-Step "scripts: copied to .claude\scripts\ (existing files overwritten)."
+    } else {
+        Write-Step "scripts: copied to .claude\scripts\"
+    }
+} else {
+    Write-Warning "template\scripts is missing or empty - skipping scripts."
+}
+
+# ---------- 4b. engram-root pin (satellite only) ----------
+# One line, forward slashes, trailing LF: the middle rung of the nested-root
+# resolution order that hooks/skills/lint share (root itself -> this pin ->
+# one-level-down probe). Overwritten freely, so re-runs are idempotent.
+if ($isSatellite) {
+    try {
+        $pinPath = Join-Path $claudeDir 'engram-root'
+        [System.IO.File]::WriteAllText($pinPath, $childRel + "`n", $utf8NoBom)
+        Write-Step "pin: .claude\engram-root -> $childRel"
+    } catch {
+        Write-Warning ("engram-root pin write failed: " + $_.Exception.Message)
+    }
+}
+
+# ---------- 5. merge hooks into settings.json ----------
 $fragPath = Join-Path $templateDir 'settings-fragment.json'
 
 # Graft a single hook-group entry into settings.hooks.<evt>, guarding the
@@ -300,15 +397,38 @@ if (-not $AutoCapture) {
     Write-Host "Auto-capture available: re-run with -AutoCapture to enable transcript-draft journaling (PreCompact + SessionEnd)."
 }
 
-# ---------- 5. CLAUDE.md ----------
+# ---------- 6. CLAUDE.md ----------
+# Normal mode: append-if-marker-absent (a present block is never rewritten).
+# Satellite mode: the block carries the child path, so it must CONVERGE - an
+# existing BEGIN/END block is replaced wholesale by the freshly rendered one
+# (identical content = no-op rewrite, so re-runs stay byte-identical).
 try {
     $claudeMdPath = Join-Path $Target 'CLAUDE.md'
-    $snippet = [System.IO.File]::ReadAllText((Join-Path $templateDir 'CLAUDE-snippet.md'))
+    if ($isSatellite) {
+        $snippet = [System.IO.File]::ReadAllText((Join-Path $templateDir 'CLAUDE-snippet-satellite.md'))
+        $snippet = $snippet.Replace('{{CHILD}}', $childRel)
+    } else {
+        $snippet = [System.IO.File]::ReadAllText((Join-Path $templateDir 'CLAUDE-snippet.md'))
+    }
     $existing = ''
     if (Test-Path -LiteralPath $claudeMdPath) {
         $existing = [System.IO.File]::ReadAllText($claudeMdPath)
     }
-    if ($existing.IndexOf('BEGIN ENGRAM') -ge 0) {
+    $endMark  = '<!-- END ENGRAM -->'
+    $beginIdx = $existing.IndexOf('<!-- BEGIN ENGRAM')
+    $endIdx   = $existing.IndexOf($endMark)
+    if ($isSatellite -and $beginIdx -ge 0 -and $endIdx -ge $beginIdx) {
+        $block = $snippet.Substring($snippet.IndexOf('<!-- BEGIN ENGRAM')).TrimEnd()
+        $newMd = $existing.Substring(0, $beginIdx) + $block + $existing.Substring($endIdx + $endMark.Length)
+        if ($newMd -eq $existing) {
+            Write-Step "CLAUDE.md: Engram satellite block already current - unchanged."
+        } else {
+            [System.IO.File]::WriteAllText($claudeMdPath, $newMd, $utf8NoBom)
+            Write-Step "CLAUDE.md: Engram satellite block replaced (memory root $childRel)."
+        }
+    } elseif ($isSatellite -and $beginIdx -ge 0) {
+        Write-Warning "CLAUDE.md has a BEGIN ENGRAM marker with no matching END ENGRAM - NOT modifying it. Repair or remove the block, then re-run."
+    } elseif ($existing.IndexOf('BEGIN ENGRAM') -ge 0) {
         Write-Step "CLAUDE.md: Engram block already present - unchanged."
     } else {
         $sep = ''
@@ -317,13 +437,22 @@ try {
             if ($existing.IndexOf("`r`n") -ge 0) { $sep = "`r`n" } else { $sep = "`n" }
         }
         [System.IO.File]::WriteAllText($claudeMdPath, $existing + $sep + $snippet, $utf8NoBom)
-        Write-Step "CLAUDE.md: appended Engram block."
+        if ($isSatellite) {
+            Write-Step "CLAUDE.md: appended Engram satellite block (memory root $childRel)."
+        } else {
+            Write-Step "CLAUDE.md: appended Engram block."
+        }
     }
 } catch {
     Write-Warning ("CLAUDE.md update failed: " + $_.Exception.Message)
 }
 
-# ---------- 6. append-only union-merge (prevents merge conflicts in teams) ----------
+# ---------- 7. append-only union-merge (prevents merge conflicts in teams) ----------
+# Skipped for satellites: the rules cover .claude/memory paths that only exist in
+# the child, and the satellite parent may not be a git repo at all.
+if ($isSatellite) {
+    Write-Step ".gitattributes: skipped - satellite install (union-merge rules belong to $childRel)."
+} else {
 try {
     $gaPath = Join-Path $Target '.gitattributes'
     $gaExisting = ''
@@ -350,8 +479,9 @@ try {
 } catch {
     Write-Warning (".gitattributes update failed: " + $_.Exception.Message)
 }
+}
 
-# ---------- 7. status line (user-level, never clobbers) ----------
+# ---------- 8. status line (user-level, never clobbers) ----------
 # The status line is a per-user singleton: a project-level statusLine would
 # override every teammate's personal one, so it is registered in the USER's
 # ~\.claude\settings.json instead. The script locates the project from the
@@ -361,8 +491,13 @@ try {
     $userClaude   = Join-Path $env:USERPROFILE '.claude'
     $userSettings = Join-Path $userClaude 'settings.json'
     $slSource     = Join-Path $hooksSource 'engram-statusline.sh'
-    $slCommand    = 'bash ~/.claude/engram-statusline.sh'
-    $slManual     = '"statusLine": { "type": "command", "command": "' + $slCommand + '" }'
+    # install.ps1 runs on Windows, so register the PowerShell twin: Git Bash
+    # process spawns can cost ~1s each there, pushing the bash twin's atlas pass
+    # far past the status-line timeout (stale renders). install.sh registers the
+    # bash twin on macOS/Linux -- the per-OS dispatch happens at install time.
+    $slPs1Dest    = Join-Path $userClaude 'engram-statusline.ps1'
+    $slCommand    = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + ($slPs1Dest -replace '\\', '/') + '"'
+    $slManual     = '"statusLine": { "type": "command", "command": ' + ($slCommand | ConvertTo-Json) + ' }'
     if (Test-Path -LiteralPath $slSource) {
         if (-not (Test-Path -LiteralPath $userClaude)) {
             New-Item -ItemType Directory -Path $userClaude -Force | Out-Null
@@ -370,14 +505,26 @@ try {
         Copy-Item -LiteralPath $slSource -Destination (Join-Path $userClaude 'engram-statusline.sh') -Force
         $slPs1 = Join-Path $hooksSource 'engram-statusline.ps1'
         if (Test-Path -LiteralPath $slPs1) {
-            Copy-Item -LiteralPath $slPs1 -Destination (Join-Path $userClaude 'engram-statusline.ps1') -Force
+            Copy-Item -LiteralPath $slPs1 -Destination $slPs1Dest -Force
         }
         if (Test-Path -LiteralPath $userSettings) {
             $rawUser = Get-Content -LiteralPath $userSettings -Raw
             $userObj = $null
             try { $userObj = $rawUser | ConvertFrom-Json } catch { $userObj = $null }
-            if ($rawUser.IndexOf('engram-statusline') -ge 0) {
-                Write-Step "status line: already registered in ~\.claude\settings.json (script refreshed)."
+            if ($rawUser.IndexOf('engram-statusline.ps1') -ge 0) {
+                Write-Step "status line: already registered (PowerShell twin) in ~\.claude\settings.json (script refreshed)."
+            } elseif ($rawUser.IndexOf('engram-statusline') -ge 0) {
+                # Legacy bash-twin registration on a Windows machine: upgrade it.
+                if ($null -ne $userObj -and $userObj.PSObject.Properties['statusLine'] -and
+                    $null -ne $userObj.statusLine -and
+                    ([string]$userObj.statusLine.command).IndexOf('engram-statusline') -ge 0) {
+                    $userObj.statusLine | Add-Member -MemberType NoteProperty -Name 'command' -Value $slCommand -Force
+                    $json = $userObj | ConvertTo-Json -Depth 50
+                    [System.IO.File]::WriteAllText($userSettings, $json, $utf8NoBom)
+                    Write-Step "status line: upgraded bash-twin registration to the PowerShell twin (avoids Git Bash spawn cost)."
+                } else {
+                    Write-Warning "~\.claude\settings.json references engram-statusline in an unexpected shape - NOT modifying it. Set manually: $slManual"
+                }
             } elseif ($null -eq $userObj) {
                 Write-Warning "Could not parse ~\.claude\settings.json - NOT modifying it. To show the Engram status line, add manually: $slManual"
             } elseif ($userObj.PSObject.Properties['statusLine'] -and $null -ne $userObj.statusLine) {
@@ -407,17 +554,32 @@ try {
     Write-Warning ("status line setup failed: " + $_.Exception.Message)
 }
 
-# ---------- 8. modules ----------
+# ---------- 9. modules ----------
+# Modules write memory, so -Satellite + -Modules is rejected up front (above);
+# $Modules is therefore always empty here in satellite mode.
 foreach ($m in $Modules) { Install-EngramModule $m }
 
 # ---------- summary ----------
 Write-Host ""
-Write-Host "Engram installed into $Target"
-Write-Host "Next steps:"
-Write-Host "  1. Open Claude Code in the target and run /mem-init to bootstrap memory from the codebase."
-Write-Host "  2. New sessions will start with an Engram brief (SessionStart hook)."
-Write-Host "  3. The status line at the bottom of Claude Code shows tasks / atlas freshness / journal age."
-if ($RefreshTooling) {
-    Write-Host "  4. Tooling refreshed on an existing install: run /mem-sync in the target - it walks any pending memory-format migrations (see .claude\skills\mem-sync\MIGRATIONS.md)."
+if ($isSatellite) {
+    Write-Host "Engram SATELLITE installed into $Target"
+    Write-Host "  memory root: $childRel (pinned in .claude\engram-root; no memory installed here)"
+    Write-Host "Next steps:"
+    Write-Host "  1. Launch Claude Code from $Target - the brief, skills and lint resolve memory through the pin."
+    Write-Host "  2. Every memory write lands in $childRel\.claude\memory\ - commit it from that repo (git -C $childRel)."
+    Write-Host "  3. The status line at the bottom of Claude Code shows tasks / atlas freshness / journal age."
+    if ($RefreshTooling) {
+        Write-Host "  4. Tooling refreshed: run /mem-sync - it walks any pending memory-format migrations (see .claude\skills\mem-sync\MIGRATIONS.md)."
+    }
+} else {
+    Write-Host "Engram installed into $Target"
+    Write-Host "Next steps:"
+    Write-Host "  1. Open Claude Code in the target and run /mem-init to bootstrap memory from the codebase."
+    Write-Host "  2. New sessions will start with an Engram brief (SessionStart hook)."
+    Write-Host "  3. The status line at the bottom of Claude Code shows tasks / atlas freshness / journal age."
+    Write-Host "  Optional CI: copy engram\template\ci\engram-check.yml into .github\workflows\ (needs .claude\scripts\ and .claude\memory\ committed; on Windows run .claude\scripts\engram-lint.ps1 locally - the .sh twin is slow under Git Bash)."
+    if ($RefreshTooling) {
+        Write-Host "  4. Tooling refreshed on an existing install: run /mem-sync in the target - it walks any pending memory-format migrations (see .claude\skills\mem-sync\MIGRATIONS.md)."
+    }
 }
 exit 0

@@ -16,7 +16,12 @@ auto-capture, status line — each shipped as a bash + PowerShell twin for cross
 
 ## How it works
 All three read a JSON payload from stdin and resolve the project root from
-`CLAUDE_PROJECT_DIR` → payload cwd → `$PWD`, then locate `.claude/memory`. `jq` is never
+`CLAUDE_PROJECT_DIR` → payload cwd → `$PWD`, then resolve the Engram root (since
+2026-08-11, shared by all three): root itself → `.claude/engram-root` pin file (first
+non-empty line = relative child path; dangling pin falls through) → probe one level down
+for `*/.claude/memory/MEMORY.md` (first match) → not-installed exit. Brief tags its
+header `(child)` when pin/probe resolved; capture's journal write follows the resolved
+root; statusline prefixes `child:` as before. `jq` is never
 assumed: bash extracts flat JSON fields with grep/sed, PowerShell uses ConvertFrom-Json;
 JSON-escaped backslashes in Windows paths are collapsed back. Staleness logic (shared by
 brief and statusline) parses card frontmatter and runs `git log <verified>..HEAD -- <paths>`;
@@ -34,10 +39,14 @@ auto-draft]` entry, validated before appending.
   no such heuristics by design.
 - Brief output hard-caps at 80 lines.
 - Statusline registers per-USER (`~/.claude/settings.json`), never per-project (singleton);
-  it self-locates and probes one directory level down for nested Engram installs.
+  it self-locates via the same pin/probe resolution as brief/capture.
 - The twins must stay behaviorally identical; ps1 files stay pure ASCII (unicode built from
-  char codes) for PS 5.1. On Windows the `.sh` twin is the default registration (Git Bash);
-  `.ps1` is the documented fallback.
+  char codes) for PS 5.1. On Windows the `.ps1` twins do the real work (since 2026-08-11):
+  install.ps1 registers the ps1 statusline directly, and brief/capture `.sh` detect
+  msys/cygwin via `$OSTYPE` and exec their ps1 twin — the committed settings.json keeps the
+  cross-platform bash registration. Git Bash spawns can cost ~1s EACH (see gotchas).
+- PowerShell `-like` treats `*` as a wildcard: bash glob `'* '*` (asterisk bullet) must port
+  as `'[*] *'`, NOT `'* *'` (matched every line containing a space — overcounted tasks).
 
 ## Interfaces
 **Depends on:** [[engram-memory-format]]
