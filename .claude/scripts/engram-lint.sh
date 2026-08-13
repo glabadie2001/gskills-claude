@@ -377,11 +377,14 @@ EOF
         add_finding ERROR computed-field "$rel" "frontmatter declares '$cfield:' - freshness state is computed from the manifest, never stored"
     fi
 
-    # 4g. manifest sidecar: script-generated only; must equal ls-tree at verified
+    # 4g. manifest sidecar: script-generated only; must equal ls-tree at verified.
+    # Cards with no paths (deliberate empty footprint) can't have a manifest: skip.
     mbase=$(basename "$card" .md)
     mfile="$atlas_dir/$mbase.manifest"
     mrel=$(rel_path "$mfile")
-    if [ "$attested" -eq 0 ]; then
+    if [ "${#patharr[@]}" -eq 0 ]; then
+        :
+    elif [ "$attested" -eq 0 ]; then
         if [ -f "$mfile" ]; then
             add_finding WARN orphan-manifest "$mrel" "manifest present but card is ASSUMED (never verified); manifests are minted at attestation"
         fi

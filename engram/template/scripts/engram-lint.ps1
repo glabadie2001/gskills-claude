@@ -369,11 +369,13 @@ foreach ($card in $cardFiles) {
         Add-Finding 'ERROR' 'computed-field' $rel "frontmatter declares '${cfield}:' - freshness state is computed from the manifest, never stored"
     }
 
-    # 4g. manifest sidecar: script-generated only; must equal ls-tree at verified
+    # 4g. manifest sidecar: script-generated only; must equal ls-tree at verified.
+    # Cards with no paths (deliberate empty footprint) can't have a manifest: skip.
     $mBase = $card.BaseName
     $mFile = "$atlasDir/$mBase.manifest"
     $mRel = Rel-Path $mFile
-    if (-not $attested) {
+    if ($cardPaths.Count -eq 0) {
+    } elseif (-not $attested) {
         if (Test-Path -LiteralPath $mFile) {
             Add-Finding 'WARN' 'orphan-manifest' $mRel "manifest present but card is ASSUMED (never verified); manifests are minted at attestation"
         }

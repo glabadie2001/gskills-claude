@@ -9,8 +9,6 @@
 
 ## Next
 
-- Roll Engram v9 (manifest freshness) to the other live installs: genius-sync +
-  UnifiedServer satellite — installer -RefreshTooling + /mem-sync migration walk there
 - bug-sweep: extend the v6 cold-store pattern to FINDINGS of distilled rounds (prompts
   already got it) — user-requested 2026-08-10, see [[bug-sweep-module]]
 - Manifest freshness phase 2 — GATED on one sync cycle showing the detector catching
@@ -34,6 +32,11 @@
   satellite incident; see journal)
 
 ## Done (recent)
+
+- v9 rolled to genius-sync + UnifiedServer satellite (backup first:
+  `UnifiedServer/engram-backups/genius-sync-engram-pre-v9-2026-08-13.tar.gz`);
+  18 manifests backfilled, detector yield on day one (new-features: 11 removed)
+  (2026-08-13)
 
 - Engram v9 phase 1 (manifest freshness, read side): engram-manifest twins
   (status/update), brief + statusline set-compare, linter manifest checks, mem-init

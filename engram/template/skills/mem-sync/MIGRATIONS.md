@@ -320,8 +320,10 @@ HEAD on cards nothing was checked against.
    Each attested card gets its sidecar from `git ls-tree -r <verified>` — the
    manifest states exactly what that attestation covered; no unearned trust is
    minted, and existing `verified` stamps stand as the historical claims they
-   are. `SKIP (never verified)` lines are ASSUMED cards — correct, leave them.
-   Commit the new sidecars.
+   are. `SKIP (never verified)` lines are ASSUMED cards — correct, leave them;
+   a card with deliberately-empty `paths` is skipped silently and gets no
+   manifest. Commit the new sidecars (if the memory is git-tracked; an
+   untracked/ignored `.claude/` just keeps them on disk).
 
 3. **Protocol rule 1** — in `MEMORY.md`, inside rule 1, replace the freshness
    sentences (from "Freshness is LIVE" through the end of the rule) with,
