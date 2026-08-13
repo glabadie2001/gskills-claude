@@ -155,6 +155,42 @@ emit_and_exit() {
     if [ "$ERRC" -gt 0 ]; then exit 1; else exit 0; fi
 }
 
+globs_to_re() {
+    # patharr[] -> one ERE with git-default pathspec semantics (* and ? cross '/',
+    # a wildcard-free glob also matches as a dir prefix). Mirrors engram-manifest.
+    local re="" g i c out
+    for g in "${patharr[@]}"; do
+        out=""
+        i=0
+        while [ "$i" -lt "${#g}" ]; do
+            c="${g:$i:1}"
+            case "$c" in
+                '*') out="$out.*" ;;
+                '?') out="$out." ;;
+                '.'|'+'|'('|')'|'|'|'^'|'$'|'{'|'}'|'\')
+                     out="$out\\$c" ;;
+                *)   out="$out$c" ;;
+            esac
+            i=$((i + 1))
+        done
+        re="${re:+$re|}$out"
+    done
+    [ -n "$re" ] && printf '^(%s)(/.*)?$' "$re"
+}
+
+manifest_lines_at() {
+    # $1 = commit sha, $2 = footprint regex -> "sha path" lines, LC_ALL=C path
+    # order (the exact content engram-manifest update writes).
+    git -C "$root" -c core.quotepath=false ls-tree -r "$1" 2>/dev/null \
+        | ENGRAM_RE="$2" awk '
+            BEGIN { re=ENVIRON["ENGRAM_RE"] }
+            { i=index($0,"\t"); if (i==0) next
+              meta=substr($0,1,i-1); n=split(meta,a," "); if (n<3) next
+              p=substr($0,i+1)
+              if (p ~ re) print a[3]" "p }' \
+        | LC_ALL=C sort -t' ' -k2
+}
+
 resolve_link() {
     local t="$1" num
     [ -z "$t" ] && return 0
@@ -263,11 +299,13 @@ EOF
 
     # 4a. globs: brace-glob (string) / dead-glob (git)
     gi=0
+    has_brace=0
     while [ "$gi" -lt "${#patharr[@]}" ]; do
         glob="${patharr[$gi]}"; gi=$((gi + 1))
         case "$glob" in
             *"{"*)
                 add_finding ERROR brace-glob "$rel" "paths glob uses brace expansion (git matches nothing): $glob"
+                has_brace=1
                 continue
                 ;;
         esac
@@ -279,11 +317,13 @@ EOF
         fi
     done
 
-    # 4b. verified / stale
+    # 4b. verified / stale (the attested-range check; the manifest refines it, never replaces it)
+    attested=1
     if [ -z "$verified" ] || printf '%s' "$verified" | grep -qE '^0+$'; then
+        attested=0
         disp="missing"
         [ -n "$verified" ] && disp="$verified"
-        add_finding WARN unverified "$rel" "card is unverified (verified: $disp)"
+        add_finding WARN unverified "$rel" "card is ASSUMED (never verified; verified: $disp)"
     elif [ "$is_git" -eq 1 ]; then
         objt=$(git -C "$root" cat-file -t "$verified" 2>/dev/null)
         if [ "$objt" != "commit" ]; then
@@ -330,7 +370,44 @@ EOF
 $kf_lines
 EOF
     fi
+
+    # 4f. computed-field: freshness state is computed, never stored in frontmatter
+    cfield=$(printf '%s\n' "$fm" | grep -E '^(current|state):' | head -1 | sed 's/:.*$//')
+    if [ -n "$cfield" ]; then
+        add_finding ERROR computed-field "$rel" "frontmatter declares '$cfield:' - freshness state is computed from the manifest, never stored"
+    fi
+
+    # 4g. manifest sidecar: script-generated only; must equal ls-tree at verified
+    mbase=$(basename "$card" .md)
+    mfile="$atlas_dir/$mbase.manifest"
+    mrel=$(rel_path "$mfile")
+    if [ "$attested" -eq 0 ]; then
+        if [ -f "$mfile" ]; then
+            add_finding WARN orphan-manifest "$mrel" "manifest present but card is ASSUMED (never verified); manifests are minted at attestation"
+        fi
+    elif [ "$is_git" -eq 1 ]; then
+        if [ ! -f "$mfile" ]; then
+            add_finding INFO no-manifest "$rel" "attested card has no footprint manifest; run engram-manifest update (or /mem-sync)"
+        elif [ "$has_brace" -eq 0 ] \
+            && [ "$(git -C "$root" cat-file -t "$verified" 2>/dev/null)" = "commit" ]; then
+            mre=$(globs_to_re)
+            want=$(manifest_lines_at "$verified" "$mre")
+            have=$(tr -d '\r' < "$mfile" 2>/dev/null)
+            if [ "$want" != "$have" ]; then
+                add_finding ERROR manifest-mismatch "$mrel" "manifest does not match git ls-tree at $verified; regenerate via engram-manifest update (never hand-edit)"
+            fi
+        fi
+    fi
 done
+
+# ---------- 4z. orphan manifests (sidecar without a card) ----------
+while IFS= read -r mf; do
+    [ -n "$mf" ] || continue
+    b=$(basename "$mf" .manifest)
+    if [ ! -f "$atlas_dir/$b.md" ]; then
+        add_finding WARN orphan-manifest "$(rel_path "$mf")" "manifest has no matching card: $b.manifest"
+    fi
+done < <(ls -1 "$atlas_dir"/*.manifest 2>/dev/null | LC_ALL=C sort)
 
 # ---------- 5. INDEX-* over-budget ----------
 ii=0

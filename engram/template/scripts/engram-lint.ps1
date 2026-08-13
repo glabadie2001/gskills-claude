@@ -90,6 +90,51 @@ function Plural-Commits($n) {
     if ($n -eq 1) { return "$n commit" } else { return "$n commits" }
 }
 
+function Globs-To-Regex($globs) {
+    # One regex with git-default pathspec semantics (* and ? cross '/', a
+    # wildcard-free glob also matches as a dir prefix). Mirrors engram-manifest.
+    $parts = @()
+    foreach ($g in $globs) {
+        $sb = New-Object System.Text.StringBuilder
+        foreach ($ch in $g.ToCharArray()) {
+            $c = [string]$ch
+            if ($c -eq '*') { [void]$sb.Append('.*') }
+            elseif ($c -eq '?') { [void]$sb.Append('.') }
+            elseif ('.+()|^$'.Contains($c) -or $c -eq '{' -or $c -eq '}' -or $c -eq '\') {
+                [void]$sb.Append('\').Append($c)
+            }
+            else { [void]$sb.Append($c) }
+        }
+        $parts += $sb.ToString()
+    }
+    if ($parts.Count -eq 0) { return $null }
+    $pattern = '^(' + ($parts -join '|') + ')(/.*)?$'
+    return New-Object System.Text.RegularExpressions.Regex($pattern)
+}
+
+function Manifest-Lines-At($sha, $re) {
+    # "sha path" lines from git ls-tree at $sha, ordinal path order (the exact
+    # content engram-manifest update writes).
+    $raw = @(git -C $root -c core.quotepath=false ls-tree -r $sha 2>$null)
+    if ($LASTEXITCODE -ne 0) { return @() }
+    $pairs = @{}
+    foreach ($line in $raw) {
+        if (-not $line) { continue }
+        $ti = ([string]$line).IndexOf("`t")
+        if ($ti -lt 1) { continue }
+        $p = ([string]$line).Substring($ti + 1)
+        if (-not $re.IsMatch($p)) { continue }
+        $meta = ([string]$line).Substring(0, $ti) -split '\s+'
+        if ($meta.Count -lt 3) { continue }
+        $pairs[$p] = $meta[2]
+    }
+    $keys = @($pairs.Keys)
+    [Array]::Sort($keys, [System.StringComparer]::Ordinal)
+    $out = @()
+    foreach ($k in $keys) { $out += ($pairs[$k] + ' ' + $k) }
+    return $out
+}
+
 function Json-Escape($s) {
     $x = [string]$s
     $x = $x -replace '\\', '\\'
@@ -244,9 +289,11 @@ foreach ($card in $cardFiles) {
     if (-not $module) { $module = $card.BaseName }
 
     # 4a. globs: brace-glob (string) / dead-glob (git)
+    $hasBrace = $false
     foreach ($glob in $cardPaths) {
         if ($glob.IndexOf('{') -ge 0) {
             Add-Finding 'ERROR' 'brace-glob' $rel "paths glob uses brace expansion (git matches nothing): $glob"
+            $hasBrace = $true
             continue
         }
         if ($isGit) {
@@ -259,11 +306,13 @@ foreach ($card in $cardFiles) {
         }
     }
 
-    # 4b. verified / stale
+    # 4b. verified / stale (the attested-range check; the manifest refines it, never replaces it)
+    $attested = $true
     if ((-not $verified) -or ($verified -match '^0+$')) {
+        $attested = $false
         $disp = 'missing'
         if ($verified) { $disp = $verified }
-        Add-Finding 'WARN' 'unverified' $rel "card is unverified (verified: $disp)"
+        Add-Finding 'WARN' 'unverified' $rel "card is ASSUMED (never verified; verified: $disp)"
     } elseif ($isGit) {
         $objType = ''
         try { $objType = (git -C $root cat-file -t $verified 2>$null) } catch { $objType = '' }
@@ -306,6 +355,56 @@ foreach ($card in $cardFiles) {
             if (-not (Test-Path -LiteralPath $kfFull)) {
                 Add-Finding 'ERROR' 'dead-keyfile' $rel "Key files path does not exist: $kf"
             }
+        }
+    }
+
+    # 4f. computed-field: freshness state is computed, never stored in frontmatter
+    $cfield = ''
+    if ($fmEnd -gt 0) {
+        for ($i = 1; $i -lt $fmEnd; $i++) {
+            if ($cLines[$i] -match '^(current|state):') { $cfield = $matches[1]; break }
+        }
+    }
+    if ($cfield) {
+        Add-Finding 'ERROR' 'computed-field' $rel "frontmatter declares '${cfield}:' - freshness state is computed from the manifest, never stored"
+    }
+
+    # 4g. manifest sidecar: script-generated only; must equal ls-tree at verified
+    $mBase = $card.BaseName
+    $mFile = "$atlasDir/$mBase.manifest"
+    $mRel = Rel-Path $mFile
+    if (-not $attested) {
+        if (Test-Path -LiteralPath $mFile) {
+            Add-Finding 'WARN' 'orphan-manifest' $mRel "manifest present but card is ASSUMED (never verified); manifests are minted at attestation"
+        }
+    } elseif ($isGit) {
+        if (-not (Test-Path -LiteralPath $mFile)) {
+            Add-Finding 'INFO' 'no-manifest' $rel "attested card has no footprint manifest; run engram-manifest update (or /mem-sync)"
+        } elseif (-not $hasBrace) {
+            $objType = ''
+            try { $objType = (git -C $root cat-file -t $verified 2>$null) } catch { $objType = '' }
+            if ($LASTEXITCODE -eq 0 -and "$objType".Trim() -eq 'commit') {
+                $mre = Globs-To-Regex $cardPaths
+                if ($mre) {
+                    $want = @(Manifest-Lines-At $verified $mre) -join "`n"
+                    $have = ''
+                    try { $have = ([System.IO.File]::ReadAllText($mFile)) -replace "`r", '' } catch { $have = '' }
+                    if ($want -cne $have.TrimEnd("`n")) {
+                        Add-Finding 'ERROR' 'manifest-mismatch' $mRel "manifest does not match git ls-tree at $verified; regenerate via engram-manifest update (never hand-edit)"
+                    }
+                }
+            }
+        }
+    }
+}
+
+# ---------- 4z. orphan manifests (sidecar without a card) ----------
+if (Test-Path -LiteralPath $atlasDir) {
+    $mfAll = @(Get-ChildItem -LiteralPath $atlasDir -File -Filter '*.manifest' | Sort-Object Name)
+    foreach ($mf in $mfAll) {
+        $b = $mf.Name.Substring(0, $mf.Name.Length - '.manifest'.Length)
+        if (-not (Test-Path -LiteralPath "$atlasDir/$b.md")) {
+            Add-Finding 'WARN' 'orphan-manifest' (Rel-Path $mf.FullName) "manifest has no matching card: $b.manifest"
         }
     }
 }

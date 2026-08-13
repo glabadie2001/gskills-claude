@@ -201,82 +201,67 @@ EOF_JFILES
     fi
     emit ''
 
-    # ----- Staleness: compare atlas card baselines against git history -----
+    # ----- Atlas freshness: footprint-manifest set-compare (engram-manifest twin) -----
+    # One script call (3 git spawns inside) replaces the old per-card `git log`
+    # loop. States: VERIFIED = trust the card; DRIFTED = trust minus the listed
+    # delta files; ASSUMED = never verified (map, not truth); DIRTY = uncommitted
+    # edits touch card footprints (designed state -- manifests see commits only).
     if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         local atlas_dir="$mem_dir/atlas" cards
+        local mscript="$root/.claude/scripts/engram-manifest.sh" mstatus=""
+        if [ -f "$mscript" ]; then
+            mstatus=$(bash "$mscript" status --root "$root" 2>/dev/null)
+            if [ -n "$mstatus" ]; then
+                local n_total=0 n_verified=0 drift_list="" assumed_list="" dirty_detail=""
+                local st mod det
+                while IFS=$'\t' read -r st mod det; do
+                    case "$st" in
+                        VERIFIED)   n_total=$((n_total + 1)); n_verified=$((n_verified + 1)) ;;
+                        DRIFTED|NOMANIFEST)
+                                    n_total=$((n_total + 1))
+                                    drift_list="${drift_list:+$drift_list, }$mod ($det)" ;;
+                        ASSUMED)    n_total=$((n_total + 1))
+                                    assumed_list="${assumed_list:+$assumed_list, }$mod" ;;
+                        DIRTY)      dirty_detail="$det" ;;
+                    esac
+                done <<EOF_MSTATUS
+$mstatus
+EOF_MSTATUS
+                if [ "$n_total" -gt 0 ]; then
+                    emit '### Atlas freshness'
+                    if [ -z "$drift_list" ] && [ -z "$assumed_list" ]; then
+                        emit "All $n_total atlas cards VERIFIED."
+                    else
+                        [ -n "$drift_list" ] && emit "DRIFTED - consider /mem-sync: $drift_list"
+                        [ -n "$assumed_list" ] && emit "ASSUMED (never verified; map, not truth): $assumed_list"
+                    fi
+                    [ -n "$dirty_detail" ] && emit "Uncommitted (manifests see commits only): $dirty_detail"
+                fi
+            fi
+        else
+            emit '### Atlas freshness'
+            emit 'Unavailable - engram-manifest script missing; refresh Engram tooling (installer -RefreshTooling).'
+        fi
+
+        # ----- Recent activity: commits in the last 24h touching each card's paths -----
+        # Omit the section entirely when nothing changed (silence beats noise).
         cards=$(ls -1 "$atlas_dir"/*.md 2>/dev/null | grep -v '/_[^/]*$')
         if [ -n "$cards" ]; then
-            local stale_list="" checked=0 card fm module verified paths behind
-            local recent_mods=() recent_paths=()
+            local recent_line="" card fm rmod rpaths rn runit
             while IFS= read -r card; do
                 [ -r "$card" ] || continue
                 # Frontmatter = lines between the first pair of '---' fences.
                 head -1 "$card" | grep -q '^---[[:space:]]*$' || continue
                 fm=$(awk 'NR==1{next} /^---[[:space:]]*$/{exit} {print}' "$card")
-                module=$(printf '%s\n' "$fm" | sed -n 's/^module:[[:space:]]*//p' | head -1 \
+                rmod=$(printf '%s\n' "$fm" | sed -n 's/^module:[[:space:]]*//p' | head -1 \
                     | sed 's/[[:space:]]*$//')
-                verified=$(printf '%s\n' "$fm" | sed -n 's/^verified:[[:space:]]*//p' | head -1 \
-                    | awk '{print $1}')
-                paths=$(printf '%s\n' "$fm" \
+                rpaths=$(printf '%s\n' "$fm" \
                     | awk '/^paths:[[:space:]]*$/{f=1;next}
                            f && /^[[:space:]]+-[[:space:]]*/{sub(/^[[:space:]]+-[[:space:]]*/,"");
                                gsub(/^["'\'']|["'\'']$/,""); print; next}
                            f{f=0}')
-                [ -n "$module" ] || module=$(basename "$card" .md)
-                [ -n "$paths" ] || continue    # malformed card: skip silently
-                checked=$((checked + 1))
-                # Path list -> argv array (bash 3.2: no mapfile).
-                local patharr=() p
-                while IFS= read -r p; do
-                    [ -n "$p" ] && patharr+=("$p")
-                done <<EOF_PATHS
-$paths
-EOF_PATHS
-                recent_mods+=("$module")
-                recent_paths+=("$paths")
-                case "$verified" in
-                    ""|0000000*)
-                        stale_list="${stale_list:+$stale_list, }$module (unknown baseline)"
-                        continue ;;
-                esac
-                if [ "$(git -C "$root" cat-file -t "$verified" 2>/dev/null)" != "commit" ]; then
-                    stale_list="${stale_list:+$stale_list, }$module (unknown baseline)"
-                    continue
-                fi
-                local loglines
-                if ! loglines=$(git -C "$root" log --oneline "$verified..HEAD" -- "${patharr[@]}" 2>/dev/null); then
-                    stale_list="${stale_list:+$stale_list, }$module (unknown baseline)"
-                    continue
-                fi
-                behind=$(printf '%s\n' "$loglines" | grep -c . 2>/dev/null)
-                [ -n "$behind" ] || behind=0
-                if [ "$behind" -gt 0 ] 2>/dev/null; then
-                    if [ "$behind" -eq 1 ]; then
-                        stale_list="${stale_list:+$stale_list, }$module (1 commit behind)"
-                    else
-                        stale_list="${stale_list:+$stale_list, }$module ($behind commits behind)"
-                    fi
-                fi
-            done <<EOF_CARDS
-$cards
-EOF_CARDS
-            if [ "$checked" -gt 0 ]; then
-                emit '### Atlas freshness'
-                if [ -z "$stale_list" ]; then
-                    emit "All $checked atlas cards fresh."
-                else
-                    emit "STALE cards - consider /mem-sync: $stale_list"
-                fi
-            fi
-
-            # ----- Recent activity: commits in the last 24h touching each card's paths -----
-            # Reuses the cards parsed above (module + paths); omit the section entirely
-            # when nothing changed (silence beats noise). Same silent-failure discipline.
-            local recent_line="" ri=0 rmod rpaths rn runit
-            while [ "$ri" -lt "${#recent_mods[@]}" ]; do
-                rmod="${recent_mods[$ri]}"
-                rpaths="${recent_paths[$ri]}"
-                ri=$((ri + 1))
+                [ -n "$rmod" ] || rmod=$(basename "$card" .md)
+                [ -n "$rpaths" ] || continue    # malformed card: skip silently
                 local rpatharr=() rp
                 while IFS= read -r rp; do
                     [ -n "$rp" ] && rpatharr+=("$rp")
@@ -292,7 +277,9 @@ EOF_RPATHS
                     if [ "$rn" -eq 1 ]; then runit="commit"; else runit="commits"; fi
                     recent_line="${recent_line:+$recent_line, }$rmod ($rn $runit)"
                 fi
-            done
+            done <<EOF_CARDS
+$cards
+EOF_CARDS
             if [ -n "$recent_line" ]; then
                 emit '### Recent activity (24h)'
                 emit "$recent_line"

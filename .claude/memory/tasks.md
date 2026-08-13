@@ -9,12 +9,15 @@
 
 ## Next
 
-- Manifest freshness phase 1 (read side): manifest generator twins, brief set-compare,
-  ASSUMED labeling, `ls-tree` backfill, mem-init unearned-✓ fix — spec + blocking
-  conditions in decisions/001-manifest-freshness.md; user-approved 2026-08-12, start
-  next workday. Phase 2 (per-task write path, `revoked:`) gated on detector yield.
+- Roll Engram v9 (manifest freshness) to the other live installs: genius-sync +
+  UnifiedServer satellite — installer -RefreshTooling + /mem-sync migration walk there
 - bug-sweep: extend the v6 cold-store pattern to FINDINGS of distilled rounds (prompts
   already got it) — user-requested 2026-08-10, see [[bug-sweep-module]]
+- Manifest freshness phase 2 — GATED on one sync cycle showing the detector catching
+  something `verified..HEAD` missed ([[adr-001|decisions/001]]): per-task manifest write
+  path in mem-journal 3.2 (pre-image rule), `revoked:` plumbing, DRIFTED-amended display
+  (card-body commits postdating attestation; deferred from phase 1 — needs the write path
+  to define the attested card blob), viewer shows manifest states
 
 ## Later
 
@@ -31,6 +34,10 @@
   satellite incident; see journal)
 
 ## Done (recent)
+
+- Engram v9 phase 1 (manifest freshness, read side): engram-manifest twins
+  (status/update), brief + statusline set-compare, linter manifest checks, mem-init
+  born-ASSUMED, ls-tree backfill, MIGRATIONS v8→v9; live on this repo (2026-08-13)
 
 - Engram v8: nested-root resolution (pin `.claude/engram-root` → one-level probe) across
   hooks/skills/lint + installer `-Satellite` mode; satellite-installed UnifiedServer →

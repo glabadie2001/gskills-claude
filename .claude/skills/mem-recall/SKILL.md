@@ -22,18 +22,22 @@ Scope guard: this skill serves questions whose answer lives in a memory layer (a
 1. **Index.** Read `.claude/memory/MEMORY.md`. From its Atlas table, pick candidate cards for the question. If a row is an area (`[[INDEX-<area>]]`), read that index file and pick candidates from its table — climb master → area → card; read only the cards you shortlist. A system-shape question ("how do the pieces fit", "what talks to what") → also read `architecture.md`: its Live diagram is the map, and its frontmatter gets the same freshness check as a card (step 4).
 2. **Search.** Grep `.claude/memory/` for keywords from the question — ALL layers: `atlas/`, `journal/` (including `journal/archive/`), `decisions/`, `gotchas.md`, `tasks.md`, plus any module layers present (e.g. bug-sweep's `bug-classes.md` and `sweeps/` campaign ledger + archived review artifacts). Journal dead-ends and ADRs often hold the "why" that cards don't.
 3. **Read.** Read the matched atlas cards and the journal/decision hits.
-4. **Freshness check** — for EVERY card the answer will rely on:
-   - Parse the card's frontmatter: `verified` (short sha) and `paths` (globs).
-   - `verified` is `0000000`, missing, or not a commit in this repo → the card has no
-     baseline: treat it exactly like a stale card (map, not truth).
-   - Else run: `git log --oneline <verified>..HEAD -- <paths>`
-   - Empty output → card is fresh; trust its claims.
-   - Non-empty → the card is a map, not the truth: read the current code behind each load-bearing claim and verify it BEFORE asserting it in the answer.
+4. **Freshness check** — run the deterministic status ONCE and read the line of every
+   card the answer will rely on: `.claude/scripts/engram-manifest.ps1 status` (Windows) /
+   `.claude/scripts/engram-manifest.sh status` (mac/Linux):
+   - `VERIFIED` → trust its claims.
+   - `DRIFTED (N changed/added/removed)` → trust it EXCEPT claims that could involve the
+     delta files: read the current code behind each such load-bearing claim and verify it
+     BEFORE asserting it in the answer.
+   - `ASSUMED` / `NOMANIFEST` / `unknown baseline` → map, not truth: verify load-bearing
+     claims against code before asserting them.
+   - Script missing (pre-v9 tooling) → fall back to `git log --oneline <verified>..HEAD
+     -- <paths>`: empty = trust, non-empty = verify as above.
 5. **Answer.** Answer the question, citing every memory source with its freshness, e.g.:
-   - `[[auth]] (fresh)`
-   - `[[auth]] (⚠ 4 commits behind — re-verified refresh flow against current code)`
+   - `[[auth]] (VERIFIED)`
+   - `[[auth]] (DRIFTED — re-verified refresh flow against current code)`
    - `[[adr-003]]`, `journal 2026-07-02`
-6. **Backfill.** If memory could not answer and you had to read code: write what you learned back into memory NOW, before finishing the turn. Update the relevant atlas card, or create one from the `atlas/_template.md` shape (kebab-case filename, `paths:` globs covering the module) per the /mem-save mechanics. Apply the SHA-bump rule: after editing an atlas card, bump `verified` to `git rev-parse --short HEAD` and `verified_date` to today ONLY IF (a) you actually checked the card's claims against current code during this work, AND (b) the card was not already stale (i.e. `git log --oneline <verified>..HEAD -- <paths>` is empty apart from your own just-made changes). If the card was already stale, edit the body but LEAVE the old sha — /mem-sync owns full re-verification. (A brand-new card you just wrote from current code gets `verified` = current HEAD.) A recall miss must become a memory write. State explicitly what you backfilled.
+6. **Backfill.** If memory could not answer and you had to read code: write what you learned back into memory NOW, before finishing the turn. Update the relevant atlas card, or create one from the `atlas/_template.md` shape (kebab-case filename, `paths:` globs covering the module) per the /mem-save mechanics. Apply the SHA-bump rule: after editing an atlas card, bump `verified` to `git rev-parse --short HEAD` and `verified_date` to today ONLY IF (a) you actually checked the card's claims against current code during this work, AND (b) the card's status line was VERIFIED before your edit. If the card was already DRIFTED/ASSUMED, edit the body but LEAVE the old sha — /mem-sync owns full re-verification. (A brand-new card you just wrote from current code gets `verified` = current HEAD.) After any legal bump or new card, regenerate its sidecar: `engram-manifest.(ps1|sh) update --card <module>` — never hand-write a manifest. A recall miss must become a memory write. State explicitly what you backfilled.
 7. **Log the recall event.** Append ONE line to `.claude/memory/metrics/events.jsonl`
    (create the directory/file if missing). This is the system's self-measurement AND the
    replay corpus for future with/without-memory experiments — `q` and `head` together let

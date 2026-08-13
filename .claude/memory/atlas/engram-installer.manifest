@@ -1,0 +1,6 @@
+e88d69e5ec06ed4d6d5791406f6b7749d5198911 engram/.gitattributes
+871a14a5f4b0c6ffeed9cc7a331078d0aca2754c engram/install.ps1
+bfd80e8c113f91c6f15e8c476820ad193ce58e9c engram/install.sh
+21f8e4d0327e9ff98896fa2a7b21175c42215a42 engram/modules/README.md
+9bdc450be68925c86fccf4359fb83fbe056d4a5b engram/template/CLAUDE-snippet.md
+8130b9c09be82511a077b5d10bbbe795c9d4a56c engram/template/settings-fragment.json

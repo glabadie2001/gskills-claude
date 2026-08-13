@@ -17,7 +17,7 @@ ways. Every mechanism in Engram exists to counter one of them:
 | # | Death mode | Counter-mechanism |
 |---|------------|-------------------|
 | 1 | **Write-nothing** — sessions end without capture; memory stays empty | Journal-at-milestones protocol in the always-loaded index (capture happens DURING work, so compaction/session death can't destroy it); a post-compaction hook check that catches anything still unlogged; capture skills that cost seconds, not minutes |
-| 2 | **Stale-confident** — docs assert things the code no longer does; wrong context is worse than none | Every atlas card records the git SHA it was verified against; staleness is *computed* (`git log <sha>..HEAD -- <paths>`), never guessed; `/mem-sync` repairs; the index shows freshness markers |
+| 2 | **Stale-confident** — docs assert things the code no longer does; wrong context is worse than none | Every atlas card records the git SHA it was verified against plus a footprint manifest of what that verification covered; freshness is *computed* (per-file set-compare vs HEAD, refined by `git log <sha>..HEAD -- <paths>`), never guessed; `/mem-sync` repairs; the index shows freshness markers |
 | 3 | **Bloat** — memory grows until loading it costs more than rereading the code | Hard line budgets per file; one always-loaded file (the index), everything else pull-based; journals older than 14 days compact into monthly digests |
 | 4 | **Write-only** — memory exists but no session ever reads it | The index is force-loaded via CLAUDE.md import; a SessionStart hook injects the last journal entries + open tasks + staleness summary; `/mem-recall` defines a memory-first retrieval protocol |
 | 5 | **Fragmentation** — the same fact lives in three places and drifts three ways | Single-home rule: every fact has exactly one home layer chosen by *volatility*; everything else links to it with `[[wikilinks]]` |
@@ -85,7 +85,7 @@ paths:                             # globs that define this module's footprint
   - src/auth/**
   - middleware/session.ts
 verified: a1b2c3d                  # git SHA the body was last checked against
-verified_date: 2026-07-16
+verified_date: 2026-07-16          # (0000000 = ASSUMED: drafted, never verified)
 ---
 ```
 
@@ -94,8 +94,18 @@ Body sections (fixed order): **Purpose** (2 lines) · **Key files** (path → on
 stay true; things that bite) · **Interfaces** (depends on / used by, as `[[wikilinks]]`).
 Cap ~60 lines/card. Cards are *edited in place* — never append contradictions.
 
-`paths` + `verified` make staleness mechanical: commits in `git log <verified>..HEAD -- <paths>`
-mean the card needs re-verification. The index TOC shows `✓` (fresh) or `⚠ N commits behind`.
+Freshness is dual-axis (ADR 001). **Attested**: the `verified` triple records a
+verification act; new cards are born ASSUMED (`0000000`) — drafting is not attestation.
+**Current** (computed, never stored): a git-tracked sidecar `atlas/<module>.manifest` —
+one `<blob sha> <path>` line per tracked file under the card's globs at the verified
+commit, written only by `engram-manifest update` (the linter recomputes and ERRORs on
+mismatch) — is set-compared against the tree at HEAD: match = VERIFIED, else DRIFTED
+with the delta files enumerated (so a DRIFTED card is "trust minus these files", not
+all-or-nothing), plus one aggregate DIRTY line for uncommitted edits. The range check
+`git log <verified>..HEAD -- <paths>` remains the attestation-side audit; the manifest
+refines it (content-addressed: a revert back to verified content is current again) and
+survives evidence-destroying stamp bumps by construction. The index TOC shows
+`✓ <date>` (attested) / `⚠` (drifted) / `assumed`.
 
 ### Architecture overview (live vs target)
 
@@ -162,10 +172,10 @@ back. `gotchas.md`: dated bullets with file refs.
 ## The protocol (always loaded, in MEMORY.md)
 
 1. **Read before exploring.** Before opening code to answer "how does X work", check the
-   atlas TOC (live freshness comes from the session brief). Fresh card → trust it. Stale
-   card → use it as a map, verify claims you rely on, fix wrong ones in place — but bump
-   its SHA only after re-checking the whole card; partial checks leave the SHA for
-   /mem-sync.
+   atlas TOC (live freshness comes from the session brief). VERIFIED card → trust it.
+   DRIFTED card → trust it except claims touching the enumerated delta files. ASSUMED
+   card → a map, not truth. Fix wrong claims in place — but `verified` and the manifest
+   move only after re-checking the whole card; partial checks leave them for /mem-sync.
 2. **Write at milestones, not at the end.** Finished a task, fixed a bug, learned something
    non-obvious, hit a dead end → append a journal entry *then* (30 seconds), and touch the
    affected atlas card / gotchas / tasks. Sessions die without warning; end-of-session
@@ -183,14 +193,15 @@ back. `gotchas.md`: dated bullets with file refs.
 | `/mem-init` | Bootstrap: fan out exploration over the codebase, write the initial atlas + index + Live architecture diagram, wire the CLAUDE.md import. Day-one value — memory starts full, not empty. |
 | `/mem-journal` | Append a journal entry for work just done; update tasks.md; nudge atlas/gotchas if the work invalidated them. |
 | `/mem-save` | Capture one fact; route it to its single home by the volatility rubric. |
-| `/mem-sync` | Repair pass: recompute staleness for every card, re-verify stale ones against the diff, bump SHAs, re-verify the Live architecture diagram, rebuild the index TOC, compact old journals into monthly digests, prune Done tasks. |
+| `/mem-sync` | Repair pass: read the deterministic `engram-manifest status`, re-verify DRIFTED cards against the diff, attest ASSUMED ones, regenerate manifests at each attestation, re-verify the Live architecture diagram, rebuild the index TOC, compact old journals into monthly digests, prune Done tasks. |
 | `/mem-arch` | Architecture overview: `update` re-verifies the Live diagram against the code, `target` sets/revises the idealized one (ADR on big swings), and the gap list between them is regenerated on every change. Bootstrapped by `/mem-init` from the fresh atlas. `render` generates the standalone X-ray report from the bundled `xray.html`; `extract` diffs Live against the real import graph collapsed onto atlas card paths; `compare` diffs the architecture between two revs. |
 | `/mem-recall` | Retrieval protocol: answer from memory first (index → card → journal grep), cite freshness, fall back to code only for gaps — then backfill the card. |
 
 ## Read paths (hooks)
 
 - **SessionStart** — injects: last 2 journal files' recent entries, Now/Next tasks, and a
-  computed staleness summary ("3 cards stale: auth (4 commits), api (1), db (2)"), plus a
+  computed freshness summary ("DRIFTED - consider /mem-sync: auth (2 changed, 1 added),
+  api (1 changed)" — from the manifest set-compare, ~3 git spawns total), plus a
   drift line when the architecture's Live diagram is behind the code. This is the dynamic
   context a static import can't provide.
 - **Post-compaction check** — the same SessionStart hook fires with `source: "compact"`
@@ -204,9 +215,9 @@ back. `gotchas.md`: dated bullets with file refs.
   atlas card count, and days since the last journal entry (`🧠 2 now · 1 next │ atlas 2/9
   stale │ ✎ 4d`). This is passive pressure against the write-nothing and stale-confident
   failure modes: drift becomes visible the moment it happens, not at the next `/mem-sync`.
-  The atlas pass costs ~2 git calls per card, so counts are cached in the OS temp dir and
-  recomputed only when HEAD moves, the card set changes, or a card file is edited —
-  commit-based staleness cannot change otherwise. Unlike the hooks, the status line is
+  The atlas pass is one `engram-manifest status` call (~3 git spawns), cached in the OS
+  temp dir and recomputed only when HEAD moves, the git index is touched, the
+  card/manifest set changes, or a card or manifest file is edited. Unlike the hooks, the status line is
   registered in the *user's* `~/.claude/settings.json`, not the project's: `statusLine`
   is a per-user singleton, and a project-level entry would stomp every teammate's
   personal status line. The script self-locates the project from the JSON payload Claude

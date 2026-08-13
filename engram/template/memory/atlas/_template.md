@@ -10,17 +10,22 @@ verified_by: claude-model-id (effort)
 
 <!-- Frontmatter contract — parsed by scripts; keep it EXACTLY this shape:
      module: kebab-case, must match the filename (example-module.md).
-     paths: block-style list of globs defining this module's code footprint; they drive
-       staleness detection via `git log <verified>..HEAD -- <paths>`. Globs must be
+     paths: block-style list of globs defining this module's code footprint. Globs must be
        git-pathspec compatible: NO brace expansion like src/{a,b}/** (git matches nothing,
-       silently breaking staleness — use two entries instead). Verify each glob matches
+       silently breaking freshness — use two entries instead). Verify each glob matches
        files: `git ls-files '<glob>'` must produce NON-EMPTY output.
-     verified: short git SHA of a COMMIT the body was last checked against.
+     verified: short git SHA of a COMMIT the body was last checked against, or 0000000 =
+       ASSUMED (drafted, never verified — new cards are born this way; /mem-sync attests).
      verified_by: exact model id (+ effort if known) of the model that actually read the
        code for this verification, e.g. claude-sonnet-5 or claude-fable-5 (xhigh) —
        updated together with verified/verified_date, never separately. A card verified by
        a smaller model at low effort deserves proportionally more spot-checking.
-     NO inline # comments inside the frontmatter — parsers treat them as glob text. -->
+     NO inline # comments inside the frontmatter — parsers treat them as glob text.
+     NO computed fields (current:/state:) — freshness is derived, never stored (lint ERROR).
+     Sidecar: <module>.manifest = the footprint (blob sha + path per tracked file) at the
+       verified commit, written by `engram-manifest update` at attestation. NEVER hand-edit
+       it (linter recomputes and ERRORs on mismatch). Freshness = set-compare of manifest
+       vs HEAD: VERIFIED (match) / DRIFTED (delta files enumerated) / ASSUMED / DIRTY. -->
 
 # example-module
 
@@ -49,9 +54,10 @@ persists to C" over prose about philosophy.
 - **Depends on:** [[other-module]], external service Z
 - **Used by:** [[api]], [[cli]]
 
-<!-- Budget: ≤60 lines. Edit in place — never append contradictions. After any edit
-     that re-verifies claims against code, bump `verified` to the current HEAD sha
-     (git rev-parse --short HEAD) and `verified_date` to today.
+<!-- Budget: ≤60 lines. Edit in place — never append contradictions. Bump `verified`
+     to the current HEAD sha only after re-checking the WHOLE card against code, and
+     then regenerate the sidecar (`engram-manifest update --card <module>`) — partial
+     fixes leave `verified` and the manifest alone.
      Cards hold JUDGMENT — mental models, invariants, why — never inventories of what
      grep/ls can regenerate fresh (function lists, file trees): those rot fastest and
      the code answers them better. -->

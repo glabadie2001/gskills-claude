@@ -16,7 +16,10 @@ An *engram* is the physical trace a memory leaves in a brain. This is that, for 
 <your-repo>/.claude/memory/
   MEMORY.md            # always-loaded index (≤120 lines) with the usage protocol
   atlas/<module>.md    # living docs: one card per subsystem, stamped with the git
-                       #   SHA it was verified against — staleness is COMPUTED, not guessed
+                       #   SHA it was verified against — freshness is COMPUTED, not guessed
+  atlas/<module>.manifest # the card's footprint (blob sha + path per tracked file) at
+                       #   that SHA; script-generated; set-compared against HEAD to get
+                       #   VERIFIED / DRIFTED (delta files listed) / ASSUMED / DIRTY
   architecture.md      # Live system diagram (SHA-stamped, like a card) vs Target
                        #   (idealized, changed only by decision) + an explicit gap list
   journal/YYYY-MM-DD.md# append-only activity log; dead ends are first-class
@@ -44,10 +47,10 @@ Plus six skills and a session-start hook:
 | `/mem-recall` | Answer questions from memory first; verify anything stale; backfill misses into the atlas — and log each question's outcome (hit / verified / miss) to the metrics event log |
 | `/mem-journal` | Log what just happened (including what *failed* and why), reconcile tasks |
 | `/mem-save` | File one fact into its single home |
-| `/mem-sync` | Repair pass: re-verify stale cards against the git diff, compact old journals, prune tasks, rebuild the index — and rebuild the metrics scorecard from the event log |
+| `/mem-sync` | Repair pass: re-verify DRIFTED cards against the git diff, attest ASSUMED ones and mint their manifests, compact old journals, prune tasks, rebuild the index — and rebuild the metrics scorecard from the event log |
 | `/mem-arch` | Architecture overview: keep the **Live** diagram verified against the code, set the **Target** (idealized) one, and keep the gap between them explicit. `render` produces a standalone X-ray report (computed layering, knots, hub scores, dependency structure matrix); `extract` diffs the diagram against the code's real import graph; `compare a..b` shows a refactor's architectural effect between two revs as a before→after diff with vital-sign deltas |
-| SessionStart hook | Injects a brief every session: open tasks, recent journal entries, which atlas cards are stale, and whether the architecture's Live diagram has drifted (all computed live from git). After a context compaction it instead reminds the session to journal anything unlogged. |
-| Status line | A live memory-health readout at the bottom of Claude Code — `🧠 2 now · 1 next │ atlas 8✓ │ ✎ today` — showing open tasks, stale atlas cards (cached; recomputed when HEAD moves or a card is edited), and days since the last journal entry. Registered once in your user settings; it self-locates the project — including an Engram-fied repo one level below where Claude was launched, shown with a `name:` prefix — so it works everywhere and stays blank in projects without memory. |
+| SessionStart hook | Injects a brief every session: open tasks, recent journal entries, which atlas cards have DRIFTED and exactly how (per-file set-compare of each card's footprint manifest — ~3 git spawns total), and whether the architecture's Live diagram has drifted. After a context compaction it instead reminds the session to journal anything unlogged. |
+| Status line | A live memory-health readout at the bottom of Claude Code — `🧠 2 now · 1 next │ atlas 8✓ │ ✎ today` — showing open tasks, stale atlas cards (cached; recomputed when HEAD moves, the index is touched, or a card/manifest is edited), and days since the last journal entry. Registered once in your user settings; it self-locates the project — including an Engram-fied repo one level below where Claude was launched, shown with a `name:` prefix — so it works everywhere and stays blank in projects without memory. |
 
 ## Watch the memory live
 
@@ -119,8 +122,10 @@ Memory systems for LLMs die in five known ways. Every mechanism here counters on
    protocol, costs ~30 seconds via `/mem-journal`, and a post-compaction hook catches the
    moment context is about to be lost.
 2. **Stale-confident** — docs assert things the code no longer does → every atlas card
-   records the commit it was verified against; `git log <sha>..HEAD -- <paths>` makes
-   staleness mechanical; the session brief surfaces it; `/mem-sync` repairs it.
+   records the commit it was verified against plus a footprint manifest of what that
+   verification covered; a per-file set-compare against HEAD makes drift mechanical and
+   file-granular; the session brief surfaces it; `/mem-sync` repairs it. New cards are
+   born ASSUMED — a ✓ is earned by verification, never by drafting.
 3. **Bloat** — memory grows until loading it costs more than rereading code → hard line
    budgets (index ≤120, cards ≤60), one always-loaded file, journals compact into monthly
    digests after 14 days.

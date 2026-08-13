@@ -23,11 +23,13 @@ for `*/.claude/memory/MEMORY.md` (first match) → not-installed exit. Brief tag
 header `(child)` when pin/probe resolved; capture's journal write follows the resolved
 root; statusline prefixes `child:` as before. `jq` is never
 assumed: bash extracts flat JSON fields with grep/sed, PowerShell uses ConvertFrom-Json;
-JSON-escaped backslashes in Windows paths are collapsed back. Staleness logic (shared by
-brief and statusline) parses card frontmatter and runs `git log <verified>..HEAD -- <paths>`;
-missing/zero `verified` = unknown baseline = stale. The statusline caches its atlas pass in
-the OS temp dir keyed by HEAD sha + card-list checksum, invalidated when a card mtime is
-newer. Capture spawns `claude --bare -p --model claude-haiku-4-5 --allowedTools Read` on the
+JSON-escaped backslashes in Windows paths are collapsed back. Freshness (shared by brief
+and statusline since v9) is ONE `engram-manifest status` call ([[engram-lint-ci]] scripts
+dir): per-card VERIFIED / DRIFTED (delta files) / ASSUMED / NOMANIFEST + one aggregate
+DIRTY line; brief prints an "Unavailable" line and statusline falls back to the legacy
+per-card `git log` loop when the script is absent. The statusline caches its atlas pass in
+the OS temp dir keyed by HEAD sha + card+manifest-list checksum, invalidated when a
+card/manifest mtime or `.git/index` is newer than the cache. Capture spawns `claude --bare -p --model claude-haiku-4-5 --allowedTools Read` on the
 transcript, demanding either `SKIP` or an exactly-formatted `## HH:MM — headline [model ·
 auto-draft]` entry, validated before appending.
 

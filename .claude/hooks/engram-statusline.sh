@@ -130,21 +130,49 @@ main() {
         head_sha=$(git -C "$root" rev-parse HEAD 2>/dev/null)
         cards=$(ls -1 "$mem/atlas"/*.md 2>/dev/null | grep -v '/_[^/]*$')
         if [ -n "$head_sha" ] && [ -n "$cards" ]; then
-            local key cache use_cache counts card
-            key="$head_sha $(printf '%s' "$cards" | cksum | cut -d' ' -f1)"
+            local key cache use_cache counts card mfiles keysrc
+            # Key covers cards AND manifest sidecars; .git/index mtime and any
+            # card/manifest newer than the cache invalidate it.
+            mfiles=$(ls -1 "$mem/atlas"/*.manifest 2>/dev/null)
+            keysrc="$cards
+$mfiles"
+            key="$head_sha $(printf '%s' "$keysrc" | cksum | cut -d' ' -f1)"
             cache="${TMPDIR:-/tmp}/engram-statusline-$(printf '%s' "$root" | cksum | cut -d' ' -f1).cache"
             use_cache=0
             if [ -f "$cache" ] && [ "$(sed -n 1p "$cache" 2>/dev/null)" = "$key" ]; then
                 use_cache=1
-                while IFS= read -r card; do
-                    if [ "$card" -nt "$cache" ]; then use_cache=0; break; fi
-                done <<EOF_NT
-$cards
+                [ "$root/.git/index" -nt "$cache" ] && use_cache=0
+                if [ "$use_cache" = 1 ]; then
+                    while IFS= read -r card; do
+                        [ -n "$card" ] || continue
+                        if [ "$card" -nt "$cache" ]; then use_cache=0; break; fi
+                    done <<EOF_NT
+$keysrc
 EOF_NT
+                fi
             fi
             if [ "$use_cache" = 1 ]; then
                 counts=$(sed -n 2p "$cache" 2>/dev/null)
+            elif [ -f "$root/.claude/scripts/engram-manifest.sh" ]; then
+                # Manifest set-compare (engram-manifest twin): stale counts
+                # DRIFTED + NOMANIFEST + ASSUMED.
+                local checked=0 stale=0 mstatus msline mst
+                mstatus=$(bash "$root/.claude/scripts/engram-manifest.sh" status --root "$root" 2>/dev/null)
+                while IFS= read -r msline; do
+                    [ -n "$msline" ] || continue
+                    mst="${msline%%$'\t'*}"
+                    case "$mst" in
+                        VERIFIED) checked=$((checked + 1)) ;;
+                        DRIFTED|NOMANIFEST|ASSUMED)
+                                  checked=$((checked + 1)); stale=$((stale + 1)) ;;
+                    esac
+                done <<EOF_MS
+$mstatus
+EOF_MS
+                counts="$checked $stale"
+                { printf '%s\n' "$key"; printf '%s\n' "$counts"; } > "$cache" 2>/dev/null
             else
+                # Legacy fallback (pre-manifest install): per-card range check.
                 local checked=0 stale=0 fm verified paths loglines behind
                 while IFS= read -r card; do
                     [ -r "$card" ] || continue

@@ -155,8 +155,15 @@ try {
                     Where-Object { $_.Name -notlike '_*' } | Sort-Object Name)
             }
             if ($headSha -and $cards.Count -gt 0) {
+                # Key covers cards AND manifest sidecars; .git/index mtime and any
+                # card/manifest newer than the cache invalidate it.
+                $manifests = @()
+                if (Test-Path -LiteralPath $atlasDir) {
+                    $manifests = @(Get-ChildItem -LiteralPath $atlasDir -File -Filter '*.manifest' | Sort-Object Name)
+                }
                 $md5 = [System.Security.Cryptography.MD5]::Create()
-                $listBytes = [System.Text.Encoding]::UTF8.GetBytes(($cards | ForEach-Object { $_.Name }) -join "`n")
+                $keyNames = @($cards | ForEach-Object { $_.Name }) + @($manifests | ForEach-Object { $_.Name })
+                $listBytes = [System.Text.Encoding]::UTF8.GetBytes($keyNames -join "`n")
                 $listSum = [System.BitConverter]::ToString($md5.ComputeHash($listBytes)).Replace('-', '').Substring(0, 12)
                 $key = "$headSha $listSum"
                 $rootSum = [System.BitConverter]::ToString($md5.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($root))).Replace('-', '').Substring(0, 12)
@@ -168,13 +175,36 @@ try {
                     if ($cLines.Count -ge 2 -and $cLines[0] -eq $key) {
                         $cacheTime = (Get-Item -LiteralPath $cache).LastWriteTimeUtc
                         $edited = $false
-                        foreach ($card in $cards) {
-                            if ($card.LastWriteTimeUtc -gt $cacheTime) { $edited = $true; break }
+                        $gitIndex = Join-Path $root '.git/index'
+                        try {
+                            if ((Test-Path -LiteralPath $gitIndex) -and
+                                ((Get-Item -LiteralPath $gitIndex -Force).LastWriteTimeUtc -gt $cacheTime)) { $edited = $true }
+                        } catch { }
+                        if (-not $edited) {
+                            foreach ($card in ($cards + $manifests)) {
+                                if ($card.LastWriteTimeUtc -gt $cacheTime) { $edited = $true; break }
+                            }
                         }
                         if (-not $edited) { $counts = $cLines[1] }
                     }
                 }
+                $mScript = Join-Path $root '.claude/scripts/engram-manifest.ps1'
+                if (($null -eq $counts) -and (Test-Path -LiteralPath $mScript)) {
+                    # Manifest set-compare (engram-manifest twin): stale counts
+                    # DRIFTED + NOMANIFEST + ASSUMED.
+                    $checked = 0; $stale = 0
+                    $mStatus = @(& $mScript status --root $root 2>$null)
+                    foreach ($ml in $mStatus) {
+                        if (-not $ml) { continue }
+                        $st = (([string]$ml) -split "`t", 2)[0]
+                        if ($st -eq 'VERIFIED') { $checked++ }
+                        elseif ($st -eq 'DRIFTED' -or $st -eq 'NOMANIFEST' -or $st -eq 'ASSUMED') { $checked++; $stale++ }
+                    }
+                    $counts = "$checked $stale"
+                    try { [System.IO.File]::WriteAllLines($cache, @($key, $counts)) } catch { }
+                }
                 if ($null -eq $counts) {
+                    # Legacy fallback (pre-manifest install): per-card range check.
                     $checked = 0; $stale = 0
                     foreach ($card in $cards) {
                         try {

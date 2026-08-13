@@ -13,13 +13,15 @@ budget overruns, dead paths), runnable locally or in CI via a copy-in Actions te
 ## Key files
 - `engram/template/scripts/engram-lint.sh` — bash 3.2 twin; canonical check order (source of truth when twins disagree)
 - `engram/template/scripts/engram-lint.ps1` — PowerShell 5.1 twin; must reproduce findings byte-for-byte
+- `engram/template/scripts/engram-manifest.sh` / `.ps1` — footprint-manifest tool: `status` (set-compare vs HEAD, 3 git spawns) + `update` (write sidecars from ls-tree at each card's `verified`); .sh dispatches to .ps1 on Windows
+- `engram/template/scripts/engram-scorecard.sh` / `.ps1` — deterministic scorecard.md generator from metrics/events.jsonl
 - `engram/template/ci/engram-check.yml` — copy-in workflow: runs the bash linter, posts a Step Summary + card-coverage report, never comments on PRs
 
 ## How it works
 Both scripts walk memory in a FIXED numbered order (no-git → version-drift → index budget →
-per-card checks → INDEX budgets → broken-wikilink → unsigned journal entries →
-architecture.md → dead-mdlink) and emit `LEVEL check file message` tuples — the order is the
-contract between the twins. Exit 1 iff any ERROR; `--json` emits one stable-schema object.
+per-card checks incl. computed-field + manifest trio → orphan-manifest scan → INDEX budgets
+→ broken-wikilink → unsigned journal entries → architecture.md → dead-mdlink) and emit
+`LEVEL check file message` tuples — the order is the contract between the twins. Exit 1 iff any ERROR; `--json` emits one stable-schema object.
 Per card: frontmatter parsed without a YAML lib, then brace-glob, dead-glob, bad-verified,
 staleness, frontmatter-comment, 60-line budget, dead Key-files checks. architecture.md's
 Live diagram reuses the card contract (Target exempt by design). The CI card-coverage step
@@ -28,6 +30,11 @@ re-implements the frontmatter parse independently in awk/sed.
 ## Invariants & gotchas
 - The twins must stay byte-identical in findings for identical inputs — every edit to one
   requires the mirrored edit; asserted by convention only, no automated cross-check exists.
+- Manifests are script-generated only: `manifest-mismatch` ERROR byte-compares the sidecar
+  against ls-tree at the card's `verified` (CRLF-tolerant); `current:`/`state:` frontmatter
+  is a `computed-field` ERROR; a sidecar on an ASSUMED card or without a card is
+  `orphan-manifest` WARN. Glob matching is in-process (git-default pathspec: `*` crosses
+  `/`) — identical in manifest tool and lint by construction.
 - engram-check.yml is a MANUAL copy-in: the installers ship `template/scripts` (since
   2026-08-11, tooling section 4) but never `template/ci` — deliberate, since CI needs
   `.claude/scripts` and memory committed; the install summary prints the copy-in hint.

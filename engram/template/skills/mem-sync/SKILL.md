@@ -21,15 +21,25 @@ All paths in this skill mean `<ROOT>/.claude/memory/...`; `<ROOT>` is resolved i
 
 ## 1. Staleness sweep
 
-For every `atlas/*.md` EXCEPT `_*.md` (templates) and `INDEX-*.md` (area indexes — TOCs, not cards):
+Run the deterministic status first — never hand-compute freshness:
 
-1. Parse `paths` (glob list) and `verified` (short sha) from frontmatter.
-2. Check the sha still exists: `git cat-file -t <verified>`. Fails (rebase/history rewrite/`0000000`) → treat card as FULLY STALE: re-verify the whole body against current code (no diff to guide you).
-3. Else `git log --oneline <verified>..HEAD -- <path1> <path2> …` → N commits.
-   - **N=0 → fresh.** Do NOT touch the card. Do NOT bump `verified` or `verified_date` — a card is "fresh as of its own verified_date"; bumping the sha without re-checking the body is lying. TOC row keeps `✓ <verified_date>`.
-   - **N>0 → stale.** Read the log messages, then `git diff <verified>..HEAD --stat -- <paths>`, then targeted reads of the files that changed. Update the card body IN PLACE — edit wrong claims directly, never append contradictions below stale text. Set `verified: <HEAD>`, `verified_date: <today>`, `verified_by: <the model that re-read the code>` (your own id if inline, the fan-out agent's model if delegated, + effort if known).
+```
+.claude/scripts/engram-manifest.ps1 status          # Windows
+.claude/scripts/engram-manifest.sh status           # mac/Linux (auto-dispatches on Windows)
+```
 
-**Fan-out rule:** if >5 cards are stale, dispatch one `general-purpose` agent per stale card in parallel, explicit `model: sonnet`. Paste into each prompt: the full current card text, its git log + `--stat` output, and instructions to read the changed files and return the complete updated card (frontmatter with `verified: <HEAD>` / `verified_date: <today>` + body, ≤60 lines, corrections in place). The orchestrator writes the files and MUST sanity-check every returned body before writing: frontmatter schema intact, sections in order Purpose / Key files / How it works / Invariants & gotchas / Interfaces, ≤60 lines, no appended contradictions. Bad body → fix inline or re-dispatch once.
+One line per card (`STATE<TAB>module<TAB>detail`), computed by set-comparing each card's
+footprint manifest (`atlas/<module>.manifest`: the tracked files + blob hashes at its
+`verified` commit) against the tree at HEAD, plus one aggregate DIRTY line. Handle each:
+
+1. **VERIFIED → fresh. Do NOT touch the card.** Do NOT bump `verified` or `verified_date` — a card is "fresh as of its own verified_date"; bumping the sha without re-checking the body is lying. TOC row keeps `✓ <verified_date>`. (Content-addressed: a revert back to verified content counts as VERIFIED — correct, not a bug.)
+2. **DRIFTED (N changed, N added, N removed) → re-verify.** Read `git log --oneline <verified>..HEAD -- <paths>`, then `git diff <verified>..HEAD --stat -- <paths>`, then targeted reads of the files that changed. Update the card body IN PLACE — edit wrong claims directly, never append contradictions below stale text. Set `verified: <HEAD>`, `verified_date: <today>`, `verified_by: <the model that re-read the code>` (your own id if inline, the fan-out agent's model if delegated, + effort if known). Then regenerate its sidecar — `engram-manifest.(ps1|sh) update --card <module>` — and commit card + manifest together. NEVER hand-write a manifest (linter ERROR).
+3. **ASSUMED (never verified) → first attestation.** No baseline exists: verify the whole body against current code, stamp `verified: <HEAD>` (+ date/by), then `engram-manifest update --card <module>` mints the manifest.
+4. **NOMANIFEST → backfill.** Attested card from a pre-manifest install. If the detail says commits touched its paths, re-verify as DRIFTED above; otherwise leave the card untouched. Either way run `engram-manifest update --card <module>` — it writes from `git ls-tree` at the card's own `verified`, so backfilling states exactly what was attested and mints no new trust.
+5. **DIRTY (aggregate line) → not a card problem.** Uncommitted work under card footprints. Never attest a card or regenerate a manifest to "cover" uncommitted files — manifests state committed content only. Finish the work, commit, then sync.
+6. **`verified` sha gone** (rebase/history rewrite — status shows `unknown baseline`, linter shows `bad-verified`) → treat the card as FULLY STALE: re-verify the whole body against current code (no diff to guide you), stamp fresh, regenerate the manifest.
+
+**Fan-out rule:** if >5 cards need re-verification, dispatch one `general-purpose` agent per such card in parallel, explicit `model: sonnet`. Paste into each prompt: the full current card text, its git log + `--stat` output, and instructions to read the changed files and return the complete updated card (frontmatter with `verified: <HEAD>` / `verified_date: <today>` + body, ≤60 lines, corrections in place). The orchestrator writes the files and MUST sanity-check every returned body before writing: frontmatter schema intact, sections in order Purpose / Key files / How it works / Invariants & gotchas / Interfaces, ≤60 lines, no appended contradictions. Bad body → fix inline or re-dispatch once. After writing each accepted card, the orchestrator runs `engram-manifest update --card <module>` (agents never write manifests).
 
 ## 1b. Dead-reference lint
 
@@ -47,7 +57,7 @@ references are the #1 cause of memory-induced wrong edits; never leave one stand
 ## 2. Coverage check
 
 List top-level source dirs. Any significant code area matched by NO card's `paths`:
-- **with `--full`** → create cards for it via the mem-init pattern: `Explore` agent per gap, explicit `model: sonnet`, same card format, `verified: <HEAD>`, `verified_date: <today>`.
+- **with `--full`** → create cards for it via the mem-init pattern: `Explore` agent per gap, explicit `model: sonnet`, same card format, born ASSUMED (`verified: 0000000` — drafting is not attestation; the next sync attests them and mints manifests).
 - **without** → report the gap in step 6; do not create.
 
 ## 3. Journal compaction
@@ -108,7 +118,7 @@ Regenerate from the actual `atlas/` directory (excluding `_*.md`):
   area rows. Prefer climbing over merging — merge two cards only when they're thin
   fragments of the same seam (union `paths`, keep every invariant/gotcha, re-verify the
   merged body, `verified: <HEAD>`).
-- Freshness markers: `✓ <verified_date>` for fresh and re-verified cards; `⚠ N commits behind` for any card left stale (e.g. a fan-out agent failed twice, or gaps reported without `--full`).
+- Freshness markers: `✓ <verified_date>` for VERIFIED and just-re-verified cards; `⚠ drifted` for any card left DRIFTED (e.g. a fan-out agent failed twice, or gaps reported without `--full`); `assumed <date>` for cards still awaiting first attestation.
 - PRESERVE the project one-liner, `## Protocol`, and `## Where everything lives` VERBATIM.
 - Budgets: MEMORY.md ≤120 lines; area indexes ≤60. Any card >60 lines → trim least-load-bearing content (verbose How-it-works prose first; never cut Invariants & gotchas).
 
@@ -126,8 +136,10 @@ this is the self-heal). Then:
 
    (`model` = your exact model id, same signature rule as journal headlines — never guess.)
 
-   `mean_behind` = mean commits-behind across cards that were stale at the START of this
-   sync (0 if none); `journal_entries_14d` = `## ` entry count across journal files dated
+   `fresh` = VERIFIED count from the step-1 status; `stale` = DRIFTED + NOMANIFEST +
+   ASSUMED. `mean_behind` = mean commits-behind across cards that needed re-verification
+   at the START of this sync (from their step-1 range checks; 0 if none);
+   `journal_entries_14d` = `## ` entry count across journal files dated
    in the last 14 days; `journal_gap_days` = days since the newest dated journal file.
 
 2. **Regenerate `metrics/scorecard.md` deterministically** — run the script, never

@@ -17,13 +17,16 @@ journal, decision, gotcha, task, and metrics formats copied into targets' `.clau
 - `engram/template/memory/journal/_template.md` — daily append-only journal entry shape, signed with model+effort
 - `engram/template/memory/gotchas.md`, `tasks.md` — cross-cutting traps; Now/Next/Later/Done ledger
 - `engram/template/memory/metrics/scorecard.md` — generated placeholder, filled by /mem-sync from `metrics/events.jsonl`
-- `engram/template/memory/VERSION` — memory format version stamp (currently 7)
+- `engram/template/memory/VERSION` — memory format version stamp (currently 9)
+- `engram/template/memory/.gitattributes` — manifest sidecar attrs: `-text -diff merge=binary` (regenerate on conflict, never merge)
 
 ## How it works
 One home per fact: atlas card = what code IS, decisions/ = why, gotchas.md = traps,
-tasks.md = to-dos, journal/ = what happened. Atlas cards and architecture.md carry
-frontmatter (`paths`, `verified` SHA, `verified_by`) so staleness is computed as
-`git log <verified>..HEAD -- <paths>`. Templates are placeholders only — /mem-init
+tasks.md = to-dos, journal/ = what happened. Atlas cards carry frontmatter (`paths`,
+`verified` SHA — `0000000` = ASSUMED at birth, `verified_by`) plus a script-generated
+`<module>.manifest` sidecar (blob sha + path at the verified commit); freshness =
+set-compare vs HEAD (see [[adr-001|decisions/001]]), refined by the
+`git log <verified>..HEAD -- <paths>` range check that architecture.md still uses alone. Templates are placeholders only — /mem-init
 bootstraps real content, /mem-sync re-verifies and compacts, /mem-journal and /mem-save
 append. Everything here is copied byte-for-byte on install and never overwritten on
 re-install.

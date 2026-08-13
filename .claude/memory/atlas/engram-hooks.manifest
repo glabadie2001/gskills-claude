@@ -1,0 +1,6 @@
+84d8cd0d7cca0e4bb8489d699dfa2e454f6da0ab engram/template/hooks/engram-brief.ps1
+ba356594f498520a097d268268d8747eb870cb57 engram/template/hooks/engram-brief.sh
+6e724f1e56ea3371583b80aef0c3e5e738f01c2d engram/template/hooks/engram-capture.ps1
+246f8390add3e96c7221de4b61c7ffde6d9e5c10 engram/template/hooks/engram-capture.sh
+5dc90cb3b028c9809c8a06c53d3f71dcafd6cbda engram/template/hooks/engram-statusline.ps1
+3389994a2d5bc3975f56c5ace01dc7f98a447789 engram/template/hooks/engram-statusline.sh

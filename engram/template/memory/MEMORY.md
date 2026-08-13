@@ -11,11 +11,12 @@
    X work", "why is it like this", "what was tried") routes through `/mem-recall`; a
    question a live query answers authoritatively ("did we push X?" → git) is answered
    from that tool directly, with no recall event. Before opening code, check the
-   Atlas below. Freshness is LIVE in the session brief (computed from git at startup);
-   the table's `✓` is only as of the last sync. Fresh card → trust it. Stale/unverified
-   card → use it as a map: verify claims you rely on against code and fix wrong ones in
-   place, but bump its `verified` SHA only if you re-checked the whole card — otherwise
-   leave the SHA; `/mem-sync` owns full re-verification.
+   Atlas below. Freshness is LIVE in the session brief, set-compared per file from each
+   card's footprint manifest; the table's `✓` is only as of the last sync. VERIFIED card
+   → trust it. DRIFTED card → trust it EXCEPT claims touching the listed changed/added/
+   removed files — check those against code. ASSUMED card (never verified) → a map, not
+   truth. Fix wrong claims in place, but `verified` and the manifest move only on a WHOLE
+   re-check — otherwise leave them; `/mem-sync` owns attestation.
 2. **Write at milestones, not at session end.** Finished a task, fixed a bug, learned
    something non-obvious, hit a dead end → invoke `/mem-journal` *now*. Sessions die
    without warning; deferred capture is capture that never happens.
@@ -36,7 +37,8 @@
 <!-- Maintained by /mem-init and /mem-sync. One row per card in atlas/ — or, when the
      atlas outgrows this file's budget, one row per AREA ([[INDEX-<area>]] maps of
      content): climb master → area index → card.
-     Freshness: ✓ = verified at last sync · ⚠ N = N commits touched its paths since. -->
+     Freshness: ✓ <date> = attested at last sync · ⚠ = drifted since (the brief lists
+     the delta files) · assumed = drafted, never verified. -->
 
 | Card | What it covers | Freshness |
 |------|----------------|-----------|

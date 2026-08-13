@@ -13,11 +13,14 @@ All paths in this skill mean `<ROOT>/.claude/memory/...`; `<ROOT>` is resolved i
 1. **Step 0 — resolve `<ROOT>`.** `.claude/memory/MEMORY.md` exists here → `<ROOT>` = `.`. Else if `.claude/engram-root` exists → `<ROOT>` = the relative path on its first line. Else if `*/.claude/memory/MEMORY.md` matches exactly one directory one level down → `<ROOT>` = that directory; several matches → pick the one the current work concerns and say so. No match → stop: "Engram not installed — run the installer first." Every path below means `<ROOT>/.claude/memory/...`, and every `git` command runs as `git -C <ROOT> ...`.
 2. Read MEMORY.md. If it does NOT contain the `STATUS: EMPTY` marker → already initialized. Stop and point the user to `/mem-sync`.
 3. Run `git rev-parse --short HEAD`.
-   - Succeeds → capture the short sha ONCE. Every card written this run uses this same sha.
-   - Fails but `git rev-parse --git-dir` succeeds → a git repo with NO commits yet: suggest
-     committing first (cards verified against a real sha from day one); if the user declines,
-     use `verified: 0000000` and note /mem-sync will re-baseline after the first commit.
-   - Both fail (not a git repo) → warn: staleness tracking disabled; use `verified: 0000000`.
+   - Succeeds → capture the short sha ONCE, for `architecture.md` (step 3b) only. Cards
+     do NOT get this sha: new cards are born **ASSUMED** (`verified: 0000000`) — drafting
+     a card is not a verification act, and stamping HEAD would mint unearned trust (a ✓
+     nothing ever checked anything against). The first `/mem-sync` attests each card and
+     mints its footprint manifest.
+   - Fails but `git rev-parse --git-dir` succeeds → a git repo with NO commits yet: fine —
+     cards are born `verified: 0000000` regardless; /mem-sync baselines after the first commit.
+   - Both fail (not a git repo) → warn: staleness tracking disabled.
 
 ## 1. Survey the repo (inline — do NOT delegate this step)
 
@@ -72,16 +75,19 @@ For each returned draft: review for obvious nonsense (wrong language, invented f
 module: <kebab-name>
 paths:
   - <globs from step 1>
-verified: <captured HEAD sha, or 0000000>
+verified: 0000000
 verified_date: <today, YYYY-MM-DD>
-verified_by: <exact model id of the Explore agent that read the code, e.g. claude-sonnet-5>
+verified_by: <exact model id of the Explore agent that drafted it> (drafted, unverified)
 ---
 <draft body>
 ```
 
 (`module` must match the filename. NO inline `#` comments in the frontmatter — parsers
-treat them as glob text. `verified_by` credits whoever actually read the code, so later
-sessions can weight their trust.)
+treat them as glob text. `verified: 0000000` is deliberate — the card is ASSUMED until a
+`/mem-sync` verification act earns the stamp; never write a real sha here. `verified_by`
+credits whoever drafted the card, so later sessions can weight their trust. Do NOT create
+`atlas/<module>.manifest` files — manifests are minted by `engram-manifest update` at
+attestation only.)
 
 Then fix cross-card wikilinks: every name in **Depends on:** / **Used by:** must match a real card filename in `atlas/` (`[[auth]]` → `atlas/auth.md`). Rename or drop links that don't resolve.
 
@@ -99,11 +105,12 @@ Edit `.claude/memory/MEMORY.md`:
 - DELETE the `> **STATUS: EMPTY — run /mem-init …**` blockquote and the one-liner HTML comment placeholder.
 - Write a real one-line project description in their place.
 - Fill the `## Atlas` table — replace the `*(empty — run /mem-init)*` placeholder row:
-  - **≤20 cards:** one row per card: `| [[<module>]] | <one-line scope> | ✓ <today YYYY-MM-DD> |`
+  - **≤20 cards:** one row per card: `| [[<module>]] | <one-line scope> | assumed <today YYYY-MM-DD> |`
   - **>20 cards:** hierarchical — write one `atlas/INDEX-<area>.md` per area from step 1
     (shape of `atlas/_index.md`: one-line area summary + the per-card table), and give the
-    master table one row per area: `| [[INDEX-<area>]] | <summary> (N cards) | ✓ <today> |`.
+    master table one row per area: `| [[INDEX-<area>]] | <summary> (N cards) | assumed <today> |`.
     Sessions climb master → area index → card.
+  - Never write `✓` at init — a ✓ is earned by a `/mem-sync` verification act, not by drafting.
 - PRESERVE the `## Protocol` section (every numbered rule, however many there are) and `## Where everything lives` VERBATIM — never reword them.
 - Total file ≤120 lines.
 
@@ -113,7 +120,8 @@ Offer: "Want me to scan TODO/FIXME comments into tasks.md ## Later?" Only on yes
 
 ## 6. Report
 
-- Cards written (name + paths each).
+- Cards written (name + paths each) — note they are ASSUMED (drafted, never verified):
+  the brief will label them so until the first `/mem-sync` attests them and mints manifests.
 - Partition rationale in 2 lines.
 - Architecture overview: Live diagram drawn (node count); remind that the Target is unset — `/mem-arch target` records the idealized architecture.
 - Anything needing human review: weak drafts, dropped globs, areas left uncovered.

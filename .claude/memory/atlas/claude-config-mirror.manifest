@@ -1,0 +1,8 @@
+a6e90a7036bc62550f45a50674491a2695ccccba .gitattributes
+245069e83a5b1beae9c50b4389c573e39024d4be .gitignore
+9bdc450be68925c86fccf4359fb83fbe056d4a5b CLAUDE.md
+ded21fcef6bbdaeffa2c619af7499fc3378b19b4 README.md
+c658a8627649dfc67ef785a7cdf33082dafac387 agents/Explore.md
+2ac5e1795c7a8c3da036105ed0a1444dd7b5ca80 agents/architect.md
+c99b16a9da15dfcea5c827a5aa191b4be359d710 rules/context7.md
+ee025ecc1da63dbc781d8322936eb15d88a74723 rules/model-dispatch.md

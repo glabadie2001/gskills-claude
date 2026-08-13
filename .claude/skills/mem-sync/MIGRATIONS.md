@@ -1,6 +1,6 @@
 # Engram migrations
 
-**Current tooling version: 8.** The installed memory's version lives at
+**Current tooling version: 9.** The installed memory's version lives at
 `.claude/memory/VERSION` (one integer; **missing file = version 1**). /mem-sync compares
 that number against the version above and applies each `## vN → vN+1` section below in
 order, writing the new number to VERSION after each section completes and appending a
@@ -285,4 +285,77 @@ while installing **no memory there**.
 
 4. **Forward-only** — do not rewrite existing cards, journal entries or ADRs to
    mention the pin; nothing about their content changed.
+
+## v8 → v9 (footprint manifests: dual-axis freshness)
+
+Card freshness becomes two axes (see the engine repo's ADR
+`decisions/001-manifest-freshness.md`): **attested** (the existing `verified`
+triple — a verification act) × **current** (computed: does the tracked tree at
+HEAD still match the footprint recorded at attestation?). The record is a
+git-tracked sidecar per card, `atlas/<module>.manifest` — one
+`<blob sha> <path>` line per tracked file under the card's globs at the
+`verified` commit — written ONLY by `engram-manifest update` (the linter
+recomputes and ERRORs on mismatch). Brief/statusline states: VERIFIED /
+DRIFTED (delta files enumerated) / ASSUMED (never verified) / NOMANIFEST
+(pre-migration), plus one aggregate DIRTY line for uncommitted edits. New
+cards are born ASSUMED (`verified: 0000000`) — /mem-init no longer stamps
+HEAD on cards nothing was checked against.
+
+1. **Refresh the tooling** — skip if the refresh that delivered this file
+   already did it (`.claude/scripts/engram-manifest.sh` present = done):
+
+   ```
+   powershell -NoProfile -File install.ps1 -Target <repo> -RefreshTooling
+   ./install.sh --target <repo> --refresh-tooling
+   ```
+
+2. **Backfill manifests** — run, from the repo (idempotent: existing correct
+   manifests report `OK ... unchanged`):
+
+   ```
+   .claude/scripts/engram-manifest.ps1 update      # Windows
+   .claude/scripts/engram-manifest.sh update       # mac/Linux
+   ```
+
+   Each attested card gets its sidecar from `git ls-tree -r <verified>` — the
+   manifest states exactly what that attestation covered; no unearned trust is
+   minted, and existing `verified` stamps stand as the historical claims they
+   are. `SKIP (never verified)` lines are ASSUMED cards — correct, leave them.
+   Commit the new sidecars.
+
+3. **Protocol rule 1** — in `MEMORY.md`, inside rule 1, replace the freshness
+   sentences (from "Freshness is LIVE" through the end of the rule) with,
+   verbatim (skip if "footprint manifest" already appears in rule 1):
+
+   ```markdown
+   Freshness is LIVE in the session brief, set-compared per file from each
+   card's footprint manifest; the table's `✓` is only as of the last sync. VERIFIED card
+   → trust it. DRIFTED card → trust it EXCEPT claims touching the listed changed/added/
+   removed files — check those against code. ASSUMED card (never verified) → a map, not
+   truth. Fix wrong claims in place, but `verified` and the manifest move only on a WHOLE
+   re-check — otherwise leave them; `/mem-sync` owns attestation.
+   ```
+
+4. **Atlas TOC legend** — replace the `Freshness:` line of the HTML comment
+   above the Atlas table with (skip if it already says `attested`):
+
+   ```
+   Freshness: ✓ <date> = attested at last sync · ⚠ = drifted since (the brief lists
+   the delta files) · assumed = drafted, never verified.
+   ```
+
+5. **`.claude/memory/.gitattributes`** — create if missing, with exactly the
+   engine template's `template/memory/.gitattributes` content (marks
+   `atlas/*.manifest` as `-text -diff merge=binary`: no CRLF translation, no
+   content diffs, merge conflicts resolved by regenerating — never take both
+   sides of a manifest merge).
+
+6. **Write `9` to `.claude/memory/VERSION`.**
+
+7. **Forward-only** — never retro-downgrade existing cards or TOC rows to
+   `assumed` (their stamps are historical claims by whoever made them), never
+   hand-edit a manifest, and never "fix" a DRIFTED card by regenerating its
+   manifest without the re-verification act (`/mem-sync` step 1 owns that).
+   The `revoked:` guard and the per-task manifest write path are deliberately
+   NOT in this hop (ADR phase 2 — gated on detector yield).
 

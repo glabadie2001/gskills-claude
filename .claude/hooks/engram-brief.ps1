@@ -188,7 +188,11 @@ try {
             $out.Add('')
         } catch { }
 
-        # ----- Staleness: compare atlas card baselines against git history -----
+        # ----- Atlas freshness: footprint-manifest set-compare (engram-manifest twin) -----
+        # One script call replaces the old per-card `git log` loop. States:
+        # VERIFIED = trust the card; DRIFTED = trust minus the listed delta files;
+        # ASSUMED = never verified (map, not truth); DIRTY = uncommitted edits
+        # touch card footprints (designed state -- manifests see commits only).
         try {
             $isGit = $false
             $gitOut = git -C $root rev-parse --is-inside-work-tree 2>$null
@@ -196,6 +200,50 @@ try {
 
             if ($isGit) {
                 $atlasDir = Join-Path $memDir 'atlas'
+                $mScript = Join-Path $root '.claude/scripts/engram-manifest.ps1'
+                if (Test-Path -LiteralPath $mScript) {
+                    $mStatus = @(& $mScript status --root $root 2>$null)
+                    if ($mStatus.Count -gt 0) {
+                        $nTotal = 0; $nVerified = 0
+                        $driftList = New-Object System.Collections.Generic.List[string]
+                        $assumedList = New-Object System.Collections.Generic.List[string]
+                        $dirtyDetail = ''
+                        foreach ($ml in $mStatus) {
+                            if (-not $ml) { continue }
+                            $f = ([string]$ml) -split "`t", 3
+                            if ($f.Count -lt 3) { continue }
+                            switch ($f[0]) {
+                                'VERIFIED'   { $nTotal++; $nVerified++ }
+                                'DRIFTED'    { $nTotal++; $driftList.Add($f[1] + ' (' + $f[2] + ')') }
+                                'NOMANIFEST' { $nTotal++; $driftList.Add($f[1] + ' (' + $f[2] + ')') }
+                                'ASSUMED'    { $nTotal++; $assumedList.Add($f[1]) }
+                                'DIRTY'      { $dirtyDetail = $f[2] }
+                            }
+                        }
+                        if ($nTotal -gt 0) {
+                            $out.Add('### Atlas freshness')
+                            if ($driftList.Count -eq 0 -and $assumedList.Count -eq 0) {
+                                $out.Add("All $nTotal atlas cards VERIFIED.")
+                            } else {
+                                if ($driftList.Count -gt 0) {
+                                    $out.Add('DRIFTED - consider /mem-sync: ' + ($driftList -join ', '))
+                                }
+                                if ($assumedList.Count -gt 0) {
+                                    $out.Add('ASSUMED (never verified; map, not truth): ' + ($assumedList -join ', '))
+                                }
+                            }
+                            if ($dirtyDetail) {
+                                $out.Add('Uncommitted (manifests see commits only): ' + $dirtyDetail)
+                            }
+                        }
+                    }
+                } else {
+                    $out.Add('### Atlas freshness')
+                    $out.Add('Unavailable - engram-manifest script missing; refresh Engram tooling (installer -RefreshTooling).')
+                }
+
+                # ----- Recent activity: commits in the last 24h touching each card's paths -----
+                # Omit the section entirely when nothing changed (silence beats noise).
                 $cards = @()
                 if (Test-Path -LiteralPath $atlasDir) {
                     $cards = @(Get-ChildItem -LiteralPath $atlasDir -File -Filter '*.md' |
@@ -203,81 +251,39 @@ try {
                         Sort-Object Name)
                 }
                 if ($cards.Count -gt 0) {
-                    $staleReports = New-Object System.Collections.Generic.List[string]
-                    $recentList = New-Object System.Collections.Generic.List[object]
-                    $checked = 0
-                    foreach ($card in $cards) {
-                        try {
-                            $cLines = [System.IO.File]::ReadAllLines($card.FullName)
-                            if ($cLines.Count -lt 2 -or $cLines[0].Trim() -ne '---') { continue }
-                            $module = ''; $verified = ''; $cardPaths = @(); $inPaths = $false
-                            for ($i = 1; $i -lt $cLines.Count; $i++) {
-                                $l = $cLines[$i]
-                                if ($l.Trim() -eq '---') { break }
-                                if ($inPaths -and $l -match '^\s+-\s*(.+?)\s*$') {
-                                    $cardPaths += $matches[1].Trim('"').Trim("'")
-                                    continue
-                                }
-                                $inPaths = $false
-                                if ($l -match '^module:\s*(.+?)\s*$')  { $module = $matches[1]; continue }
-                                if ($l -match '^verified:\s*(\S+)')    { $verified = $matches[1]; continue }
-                                if ($l -match '^paths:\s*$')           { $inPaths = $true; continue }
-                            }
-                            if (-not $module) { $module = $card.BaseName }
-                            if ($cardPaths.Count -eq 0) { continue }   # malformed card: skip silently
-                            $checked++
-                            $recentList.Add(@{ m = $module; p = $cardPaths })
-                            if ((-not $verified) -or ($verified -match '^0+$')) {
-                                $staleReports.Add("$module (unknown baseline)")
-                                continue
-                            }
-                            $objType = (git -C $root cat-file -t $verified 2>$null)
-                            if ($LASTEXITCODE -ne 0 -or "$objType".Trim() -ne 'commit') {
-                                $staleReports.Add("$module (unknown baseline)")
-                                continue
-                            }
-                            $logLines = @(git -C $root log --oneline "$verified..HEAD" -- $cardPaths 2>$null)
-                            if ($LASTEXITCODE -ne 0) {
-                                $staleReports.Add("$module (unknown baseline)")
-                                continue
-                            }
-                            $behind = @($logLines | Where-Object { $_ -and $_.Trim().Length -gt 0 }).Count
-                            if ($behind -gt 0) {
-                                $plural = 's'
-                                if ($behind -eq 1) { $plural = '' }
-                                $staleReports.Add("$module ($behind commit$plural behind)")
-                            }
-                        } catch { }
-                    }
-                    if ($checked -gt 0) {
-                        $out.Add('### Atlas freshness')
-                        if ($staleReports.Count -eq 0) {
-                            $out.Add("All $checked atlas cards fresh.")
-                        } else {
-                            $out.Add('STALE cards - consider /mem-sync: ' + ($staleReports -join ', '))
-                        }
-                    }
-
-                    # ----- Recent activity: commits in the last 24h touching each card's paths -----
-                    # Reuses the cards parsed above (module + paths); omit the section entirely
-                    # when nothing changed (silence beats noise). Same silent-failure discipline.
                     try {
-                        if ($recentList.Count -gt 0) {
-                            $recentReports = New-Object System.Collections.Generic.List[string]
-                            foreach ($rc in $recentList) {
-                                $rlog = @(git -C $root log --oneline --since=24.hours -- $rc.p 2>$null)
+                        $recentReports = New-Object System.Collections.Generic.List[string]
+                        foreach ($card in $cards) {
+                            try {
+                                $cLines = [System.IO.File]::ReadAllLines($card.FullName)
+                                if ($cLines.Count -lt 2 -or $cLines[0].Trim() -ne '---') { continue }
+                                $module = ''; $cardPaths = @(); $inPaths = $false
+                                for ($i = 1; $i -lt $cLines.Count; $i++) {
+                                    $l = $cLines[$i]
+                                    if ($l.Trim() -eq '---') { break }
+                                    if ($inPaths -and $l -match '^\s+-\s*(.+?)\s*$') {
+                                        $cardPaths += $matches[1].Trim('"').Trim("'")
+                                        continue
+                                    }
+                                    $inPaths = $false
+                                    if ($l -match '^module:\s*(.+?)\s*$')  { $module = $matches[1]; continue }
+                                    if ($l -match '^paths:\s*$')           { $inPaths = $true; continue }
+                                }
+                                if (-not $module) { $module = $card.BaseName }
+                                if ($cardPaths.Count -eq 0) { continue }   # malformed card: skip silently
+                                $rlog = @(git -C $root log --oneline --since=24.hours -- $cardPaths 2>$null)
                                 if ($LASTEXITCODE -ne 0) { continue }
                                 $rn = @($rlog | Where-Object { $_ -and $_.Trim().Length -gt 0 }).Count
                                 if ($rn -gt 0) {
                                     $rplural = 's'
                                     if ($rn -eq 1) { $rplural = '' }
-                                    $recentReports.Add("$($rc.m) ($rn commit$rplural)")
+                                    $recentReports.Add("$module ($rn commit$rplural)")
                                 }
-                            }
-                            if ($recentReports.Count -gt 0) {
-                                $out.Add('### Recent activity (24h)')
-                                $out.Add($recentReports -join ', ')
-                            }
+                            } catch { }
+                        }
+                        if ($recentReports.Count -gt 0) {
+                            $out.Add('### Recent activity (24h)')
+                            $out.Add($recentReports -join ', ')
                         }
                     } catch { }
                 }

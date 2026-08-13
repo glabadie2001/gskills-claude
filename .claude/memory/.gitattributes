@@ -1,0 +1,7 @@
+# Engram footprint manifests: script-generated, content-addressed sidecars.
+# -text: never CRLF-translate (they are byte-compared against git ls-tree output).
+# -diff: treat as binary in diffs (regenerate via engram-manifest; don't read diffs).
+# merge=binary: force a conflict on merge -- resolve by REGENERATING via
+# engram-manifest update, never by taking both sides (post-merge cards read as
+# DRIFTED until /mem-sync re-attests anyway).
+atlas/*.manifest -text -diff merge=binary
