@@ -273,13 +273,15 @@ else
 fi
 
 # ---------- 4. scripts (tooling: overwrite allowed) ----------
+# Zero-token helpers: engram-lint (memory linter, also run by ci/engram-check.yml as
+# .claude/scripts/engram-lint.sh) and engram-cost.py (per-session spend attribution).
 scripts_source="$template_dir/scripts"
 if [ -d "$scripts_source" ] && [ -n "$(ls -A "$scripts_source" 2>/dev/null)" ]; then
     note=""
     [ -d "$scripts_target" ] && note=" (existing files overwritten)"
     mkdir -p "$scripts_target"
     cp -R "$scripts_source/." "$scripts_target/"
-    chmod +x "$scripts_target/engram-lint.sh" 2>/dev/null || true
+    chmod +x "$scripts_target"/*.sh "$scripts_target"/*.py 2>/dev/null || true
     echo "  - scripts: copied to .claude/scripts/$note"
 else
     echo "WARNING: template/scripts is missing or empty - skipping scripts." >&2

@@ -19,7 +19,13 @@ against the last-seen map, re-reads changed files, computes an LCS line diff, re
 A hand-rolled markdown renderer handles headings/lists/tables/frontmatter/wikilinks — no
 library. Two custom visualizations: in-place mermaid blocks (small `graph TD/LR` subset
 parser, Tarjan SCC for cycles/hubs, SVG layered layout) and a whole-memory wikilink graph
-(force-directed canvas).
+(force-directed canvas). The graph is deliberately low-motion: node positions persist to
+`localStorage.eng_layout_<rootName>`, a cold graph simulates ~240 ticks off-screen and
+fits to view before the first paint, and rebuilds reheat only in proportion to what
+changed (same node+link set → no motion at all). An Obsidian-style ⚙ panel exposes the
+force constants (center/repel/link/link-distance), display scales (node size, link
+thickness, text-fade threshold) and an orphan filter, persisted to
+`localStorage.eng_graph_cfg`.
 
 ## Invariants & gotchas
 - Chromium-only (File System Access API); no polyfill — warns and suggests
@@ -36,6 +42,11 @@ parser, Tarjan SCC for cycles/hubs, SVG layered layout) and a whole-memory wikil
 - Wikilink resolution: exact atlas path → `adr-N` → `decisions/NNN-*` → first basename match
   anywhere — ambiguous if two files share a basename outside atlas/decisions.
 - Diffs are session-local (since connect); earlier history is git's job.
+- The saved graph layout is keyed by `rootName` — the *picked folder's* name, not a path.
+  Two repos with the same basename share one layout blob (harmless: unknown paths are
+  ignored, and the saved map is merged rather than replaced on write).
+- `buildGraph()` is the only place allowed to raise `gAlpha` on a rebuild; adding a
+  `gDirty = true` next to a view toggle re-introduces the jump-on-open bug.
 
 ## Interfaces
 **Depends on:** [[engram-memory-format]], [[engram-mem-skills]]

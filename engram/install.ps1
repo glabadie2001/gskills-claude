@@ -264,6 +264,8 @@ if ((Test-Path -LiteralPath $hooksSource -PathType Container) -and
 }
 
 # ---------- 4. scripts (tooling: overwrite allowed) ----------
+# Zero-token helpers: engram-lint (memory linter, also run by ci\engram-check.yml as
+# .claude/scripts/engram-lint.sh) and engram-cost.py (per-session spend attribution).
 $scriptsSource = Join-Path $templateDir 'scripts'
 if ((Test-Path -LiteralPath $scriptsSource -PathType Container) -and
     (Get-ChildItem -LiteralPath $scriptsSource -Force | Select-Object -First 1)) {

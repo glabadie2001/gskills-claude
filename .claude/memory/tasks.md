@@ -11,6 +11,12 @@
 
 - bug-sweep: extend the v6 cold-store pattern to FINDINGS of distilled rounds (prompts
   already got it) — user-requested 2026-08-10, see [[bug-sweep-module]]
+- Red-team sweep KIND → engine template — GATED on a second red-team round in
+  genius-sync exercising the shapes live ([[adr-002|decisions/002]]): `sweep-kind` marker
+  into the module contract + linter (both sides, mismatch = ERROR), tally isolation from
+  the clean-round loop, `sweeps/threat-models.md`, model-scoped risk verdicts
+  (`model:`/`accepted-by`/`revisit-when`, NOT bare deliberate-designs entries), and
+  `sweeps/verified-clean/` stamped by generalizing `engram-manifest` past `atlas/`
 - Manifest freshness phase 2 — GATED on one sync cycle showing the detector catching
   something `verified..HEAD` missed ([[adr-001|decisions/001]]): per-task manifest write
   path in mem-journal 3.2 (pre-image rule), `revoked:` plumbing, DRIFTED-amended display
