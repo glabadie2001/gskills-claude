@@ -146,3 +146,35 @@ small by construction. See [DESIGN.md](DESIGN.md) for the full rationale.
   (verified at `e9f21c3`), the Target beside it, and the two gaps still open between them.
 - Friday → `/mem-sync` re-verifies what drifted, digests old journals, and tells you what
   it changed.
+
+## What it costs
+
+Engram's always-loaded footprint is small: the CLAUDE.md snippet plus `MEMORY.md` at its
+120-line cap is ≤1.6K tokens, the session brief at its 80-line cap ≤1K, and the six skill
+listings (name + description + when-to-use) ~0.8K. Call it **~3.5K tokens per session** —
+on Sonnet, about a cent to write to the prompt cache and a tenth of a cent per request to
+re-read. Skill bodies (1–2.3K tokens each) load only when a skill is invoked.
+
+The spend that *is* Engram's is measured in **rounds, not tokens**: every tool call is one
+API request that re-reads the whole context. `/mem-recall` is 6–10 rounds (index, grep,
+cards, one `git log` per card, verification reads, backfill); `/mem-journal` is 4–8; a stale
+card costs a verification pass in every session that relies on it until `/mem-sync` bumps
+its SHA; `/mem-sync` fans out one agent per stale card once more than five are stale. Rule
+of thumb at a 60K-token context on Sonnet 4.6: **~$0.02–0.03 per round with prompt caching,
+~$0.18 per round without it.** A small session that costs a dollar more than it should is
+usually either 30–40 extra rounds or a cache hit rate near zero — check the second first.
+
+Measure instead of guessing:
+
+```bash
+python3 engram/scripts/engram-cost.py                 # sessions of the current repo
+python3 engram/scripts/engram-cost.py --detail <id>   # per-request breakdown of one session
+python3 engram/scripts/engram-cost.py --price sonnet-4-6=3,15   # override $/MTok
+```
+
+It reads the Claude Code transcripts under `~/.claude/projects/`, prices every request from
+its `usage` block (first-party list price, cache write 1.25×, cache read 0.1×), and splits
+each session into a fixed first-request cache write, requests that did Engram work
+(`/mem-*` skills, tool calls touching `.claude/memory/`, atlas freshness `git log`s,
+memory-related subagents), and everything else. The `hit` column is the cache hit rate; if
+it is near 0% the fix is your API gateway, not Engram.
