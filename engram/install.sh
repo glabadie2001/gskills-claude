@@ -153,7 +153,7 @@ if [ "$memory_present" = 1 ] && [ "$refresh" != 1 ]; then
         echo "Module application complete. Memory and tooling otherwise untouched."
         exit 0
     fi
-    echo "Engram already installed (memory present) - refusing to touch .claude/memory. Use --refresh-tooling to update skills/hooks only, or --modules <name> to add a module."
+    echo "Engram already installed (memory present) - refusing to touch .claude/memory. Use --refresh-tooling to update skills/hooks/scripts only, or --modules <name> to add a module."
     exit 0
 fi
 
@@ -198,6 +198,22 @@ if [ -d "$hooks_source" ] && [ -n "$(ls -A "$hooks_source" 2>/dev/null)" ]; then
     echo "  - hooks: copied to .claude/hooks/$note"
 else
     echo "WARNING: template/hooks is missing or empty - skipping hooks." >&2
+fi
+
+# ---------- 3b. scripts (tooling: overwrite allowed) ----------
+# Zero-token helpers: engram-lint (memory linter, also run by ci/engram-check.yml as
+# .claude/scripts/engram-lint.sh) and engram-cost.py (per-session spend attribution).
+scripts_source="$template_dir/scripts"
+scripts_target="$claude_dir/scripts"
+if [ -d "$scripts_source" ] && [ -n "$(ls -A "$scripts_source" 2>/dev/null)" ]; then
+    note=""
+    [ -d "$scripts_target" ] && note=" (existing files overwritten)"
+    mkdir -p "$scripts_target"
+    cp -R "$scripts_source/." "$scripts_target/"
+    chmod +x "$scripts_target"/*.sh "$scripts_target"/*.py 2>/dev/null || true
+    echo "  - scripts: copied to .claude/scripts/$note"
+else
+    echo "WARNING: template/scripts is missing or empty - skipping scripts." >&2
 fi
 
 # ---------- 4. merge hooks into settings.json (bash-shell hook variant) ----------

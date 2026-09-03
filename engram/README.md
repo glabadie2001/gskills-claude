@@ -84,7 +84,8 @@ pulse in place, so in graph view you can watch activity ripple through the memor
 Then open Claude Code in the target repo and run `/mem-init` once. That's the whole setup.
 
 The installer copies the memory template into `.claude/memory/`, the skills into
-`.claude/skills/`, the hooks into `.claude/hooks/`, merges the hook registration into
+`.claude/skills/`, the hooks into `.claude/hooks/`, the linter and cost script into
+`.claude/scripts/`, merges the hook registration into
 `.claude/settings.json` (preserving whatever is already there), and appends an import
 block to `CLAUDE.md`. It also registers the status line in your **user**
 `~/.claude/settings.json` — user-level because `statusLine` is a per-user singleton
@@ -92,7 +93,7 @@ block to `CLAUDE.md`. It also registers the status line in your **user**
 one registration then covers every Engram-fied repo on the machine. If you already
 have a status line configured, it is left untouched and the installer prints the
 one-line swap instead. The installer is idempotent and will **never overwrite an
-existing memory** (`-RefreshTooling` updates skills/hooks/status line only).
+existing memory** (`-RefreshTooling` updates skills/hooks/scripts/status line only).
 Modules obey the same contract: `-Modules <name>` on an existing install adds only
 what's missing (files + MEMORY.md bullets) and touches nothing else — safe to re-run.
 
@@ -167,10 +168,13 @@ usually either 30–40 extra rounds or a cache hit rate near zero — check the 
 Measure instead of guessing:
 
 ```bash
-python3 engram/scripts/engram-cost.py                 # sessions of the current repo
-python3 engram/scripts/engram-cost.py --detail <id>   # per-request breakdown of one session
-python3 engram/scripts/engram-cost.py --price sonnet-4-6=3,15   # override $/MTok
+python3 .claude/scripts/engram-cost.py                 # sessions of the current repo
+python3 .claude/scripts/engram-cost.py --detail <id>   # per-request breakdown of one session
+python3 .claude/scripts/engram-cost.py --price sonnet-4-6=3,15   # override $/MTok
 ```
+
+The installer puts it in `.claude/scripts/` next to the linter (`--refresh-tooling` updates
+both); it also runs straight from the engine clone at `engram/template/scripts/`.
 
 It reads the Claude Code transcripts under `~/.claude/projects/`, prices every request from
 its `usage` block (first-party list price, cache write 1.25×, cache read 0.1×), and splits

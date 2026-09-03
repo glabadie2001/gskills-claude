@@ -132,7 +132,7 @@ if ($memoryPresent -and -not $RefreshTooling) {
         Write-Host "Module application complete. Memory and tooling otherwise untouched."
         exit 0
     }
-    Write-Host "Engram already installed (memory present) - refusing to touch .claude/memory. Use -RefreshTooling to refresh skills/hooks/settings/CLAUDE.md (memory is never touched), or -Modules <name> to add a module."
+    Write-Host "Engram already installed (memory present) - refusing to touch .claude/memory. Use -RefreshTooling to refresh skills/hooks/scripts/settings/CLAUDE.md (memory is never touched), or -Modules <name> to add a module."
     exit 0
 }
 
@@ -194,6 +194,25 @@ if ((Test-Path -LiteralPath $hooksSource -PathType Container) -and
     }
 } else {
     Write-Warning "template\hooks is missing or empty - skipping hooks."
+}
+
+# ---------- 3b. scripts (tooling: overwrite allowed) ----------
+# Zero-token helpers: engram-lint (memory linter, also run by ci\engram-check.yml as
+# .claude/scripts/engram-lint.sh) and engram-cost.py (per-session spend attribution).
+$scriptsSource = Join-Path $templateDir 'scripts'
+$scriptsTarget = Join-Path $claudeDir 'scripts'
+if ((Test-Path -LiteralPath $scriptsSource -PathType Container) -and
+    (Get-ChildItem -LiteralPath $scriptsSource -Force | Select-Object -First 1)) {
+    $overwriting = Test-Path -LiteralPath $scriptsTarget
+    New-Item -ItemType Directory -Path $scriptsTarget -Force | Out-Null
+    Copy-Item -Path (Join-Path $scriptsSource '*') -Destination $scriptsTarget -Recurse -Force
+    if ($overwriting) {
+        Write-Step "scripts: copied to .claude\scripts\ (existing files overwritten)."
+    } else {
+        Write-Step "scripts: copied to .claude\scripts\"
+    }
+} else {
+    Write-Warning "template\scripts is missing or empty - skipping scripts."
 }
 
 # ---------- 4. merge hooks into settings.json ----------
