@@ -209,7 +209,7 @@ EOF_JTAIL
         case "$line" in *'STATUS: EMPTY'*) memory_empty=1; break ;; esac
     done < "$memory_md"
 
-    # ----- Tasks: ## Now and ## Next sections from tasks.md (cap 15 lines) -----
+    # ----- Tasks: top-level bullets of ## Now and ## Next (cap 12 lines) -----
     local tasks_md="$mem_dir/tasks.md"
     if [ -f "$tasks_md" ]; then
         local task_lines=() in_wanted=0 item_count=0 sect t
@@ -220,14 +220,15 @@ EOF_JTAIL
                     sect="${line#\#\#}"; trim sect
                     if [ "$sect" = "Now" ] || [ "$sect" = "Next" ]; then
                         in_wanted=1
-                        [ "${#task_lines[@]}" -lt 15 ] && task_lines+=("$line")
+                        [ "${#task_lines[@]}" -lt 12 ] && task_lines+=("$line")
                     else
                         in_wanted=0
                     fi
                     ;;
                 *)
-                    t="$line"; trim t
-                    if [ "$in_wanted" = 1 ] && [ -n "$t" ] && [ "${#task_lines[@]}" -lt 15 ]; then
+                    # Top-level bullets only; continuation lines stay in tasks.md.
+                    case "$line" in '- '*|'* '*) ;; *) continue ;; esac
+                    if [ "$in_wanted" = 1 ] && [ "${#task_lines[@]}" -lt 12 ]; then
                         task_lines+=("$line")
                         item_count=$((item_count + 1))
                     fi
@@ -241,6 +242,7 @@ EOF_JTAIL
         else
             emit 'No active tasks in tasks.md.'
         fi
+        emit '(Lines clipped - read tasks.md for detail.)'
         emit ''
     fi
 
@@ -249,7 +251,7 @@ EOF_JTAIL
         flush_and_exit
     fi
 
-    # ----- Recent journal: 2 most recent daily files, last 2 entries each (~40 lines) -----
+    # ----- Recent journal: headlines of the last 3 entries in the 2 newest files -----
     emit '### Recent journal'
     local journal_dir="$mem_dir/journal"
     # Non-recursive glob (sorted ascending) excludes journal/archive/; drop _*.md templates.
@@ -263,7 +265,7 @@ EOF_JTAIL
     if [ "$jn" -eq 0 ]; then
         emit 'No journal entries yet.'
     else
-        local budget=40 ji=$((jn - 1)) jstop=$((jn - 2))
+        local budget=10 ji=$((jn - 1)) jstop=$((jn - 2))
         [ "$jstop" -lt 0 ] && jstop=0
         while [ "$ji" -ge "$jstop" ]; do
             jf="${jall[$ji]}"; ji=$((ji - 1))
@@ -286,15 +288,14 @@ EOF_JTAIL
             emit "$header"; budget=$((budget - 1))
             local ns=${#starts[@]}
             if [ "$ns" -gt 0 ]; then
-                # Entries start at '## '; keep the last 2.
-                local from
-                if [ "$ns" -ge 2 ]; then from="${starts[$((ns - 2))]}"; else from="${starts[0]}"; fi
-                local i="$from"
-                while [ "$i" -lt "$k" ] && [ "$budget" -gt 0 ]; do
-                    t="${jl[$i]}"; trim t
-                    if [ -n "$t" ]; then
-                        emit "${jl[$i]}"; budget=$((budget - 1))
-                    fi
+                # Headlines only; the bodies stay in the journal file.
+                local from=0
+                [ "$ns" -gt 3 ] && from=$((ns - 3))
+                while [ "$from" -lt "$ns" ] && [ "$budget" -gt 0 ]; do
+                    emit "${jl[${starts[$from]}]}"; budget=$((budget - 1))
+                    from=$((from + 1))
+                done
+            fi
                     i=$((i + 1))
                 done
             fi

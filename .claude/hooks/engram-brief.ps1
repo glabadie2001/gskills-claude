@@ -113,7 +113,7 @@ try {
     try { $memoryText = [System.IO.File]::ReadAllText($memoryMd) } catch { }
     $memoryEmpty = ($memoryText.IndexOf('STATUS: EMPTY') -ge 0)
 
-    # ----- Tasks: ## Now and ## Next sections from tasks.md (cap 15 lines) -----
+    # ----- Tasks: top-level bullets of ## Now and ## Next (cap 12 lines) -----
     try {
         $tasksPath = Join-Path $memDir 'tasks.md'
         if (Test-Path -LiteralPath $tasksPath) {
@@ -125,10 +125,11 @@ try {
                 if ($l -match '^##\s+(.+?)\s*$') {
                     $sect = $matches[1]
                     $inWanted = ($sect -eq 'Now' -or $sect -eq 'Next')
-                    if ($inWanted -and $taskLines.Count -lt 15) { $taskLines.Add($l) }
+                    if ($inWanted -and $taskLines.Count -lt 12) { $taskLines.Add($l) }
                     continue
                 }
-                if ($inWanted -and $l.Trim().Length -gt 0 -and $taskLines.Count -lt 15) {
+                # Top-level bullets only; continuation lines stay in tasks.md.
+                if ($inWanted -and $l -match '^[-*]\s' -and $taskLines.Count -lt 12) {
                     $taskLines.Add($l)
                     $itemCount++
                 }
@@ -139,6 +140,7 @@ try {
             } else {
                 $out.Add('No active tasks in tasks.md.')
             }
+            $out.Add('(Lines clipped - read tasks.md for detail.)')
             $out.Add('')
         }
     } catch { }
@@ -147,7 +149,7 @@ try {
         $out.Add('Memory is empty - run /mem-init to bootstrap it from the codebase.')
     } else {
 
-        # ----- Recent journal: 2 most recent daily files, last 2 entries each (~40 lines) -----
+        # ----- Recent journal: headlines of the last 3 entries in the 2 newest files -----
         try {
             $out.Add('### Recent journal')
             $journalDir = Join-Path $memDir 'journal'
@@ -162,7 +164,7 @@ try {
             if ($jFiles.Count -eq 0) {
                 $out.Add('No journal entries yet.')
             } else {
-                $budget = 40
+                $budget = 10
                 foreach ($jf in $jFiles) {
                     if ($budget -le 0) { break }
                     $jLines = @()
@@ -172,16 +174,11 @@ try {
                     foreach ($l in $jLines) { if ($l -match '^#\s') { $header = $l; break } }
                     if (-not $header) { $header = '# ' + $jf.BaseName }
                     $out.Add($header); $budget--
-                    # Entries start at lines beginning '## '; keep the last 2.
-                    $starts = @()
-                    for ($i = 0; $i -lt $jLines.Count; $i++) {
-                        if ($jLines[$i] -like '## *') { $starts += $i }
-                    }
-                    if ($starts.Count -gt 0) {
-                        $from = $starts[[Math]::Max(0, $starts.Count - 2)]
-                        for ($i = $from; ($i -lt $jLines.Count) -and ($budget -gt 0); $i++) {
-                            if ($jLines[$i].Trim().Length -gt 0) { $out.Add($jLines[$i]); $budget-- }
-                        }
+                    # Headlines only; the bodies stay in the journal file.
+                    $heads = @($jLines | Where-Object { $_ -like '## *' } | Select-Object -Last 3)
+                    foreach ($h in $heads) {
+                        if ($budget -le 0) { break }
+                        $out.Add($h); $budget--
                     }
                 }
             }
@@ -337,10 +334,12 @@ try {
         } catch { }
     }
 
-    # ---------- emit, hard-capped at 80 lines ----------
+    # ---------- emit: hard cap 60 lines, each clipped to 160 chars ----------
+    # The brief is paid for at every session start, so it stays a pointer, not a copy.
     $emitted = 0
     foreach ($line in $out) {
-        if ($emitted -ge 80) { break }
+        if ($emitted -ge 60) { break }
+        if ($line.Length -gt 160) { $line = $line.Substring(0, 157) + '...' }
         Write-Output $line
         $emitted++
     }

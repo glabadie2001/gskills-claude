@@ -13,6 +13,7 @@ then READ the matching reference before designing the stages:
 - `references/pyramid.md` · `references/contractor.md`
 - `references/judge-panel.md` · `references/adversarial.md`
 - `references/escalation-ladder.md` · `references/loop-until-dry.md`
+- `references/model-tiers.md` — tier rubric, agent picker, workflow stage tiering (read for ANY dispatch)
 (No reference for the null topology — if you picked it, stop orchestrating.)
 
 The master question is never "what abstraction level is this stage" — it is:
