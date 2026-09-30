@@ -134,6 +134,38 @@
   }
   .graph-holder { position: relative; min-width: 0; overflow-x: auto; }
   .graph-holder svg { display: block; width: 100%; height: auto; }
+  .graph-holder svg.zoomed { cursor: grab; }
+  .graph-holder svg.panning { cursor: grabbing; user-select: none; }
+  .zoom-bar {
+    position: absolute; top: 6px; left: 6px; z-index: 2;
+    display: flex; gap: 4px; align-items: center;
+  }
+  .zoom-bar .fs-btn { position: static; min-width: 26px; }
+  .zoom-hint { font-family: var(--mono); font-size: 10.5px; color: var(--faint); margin-left: 4px; }
+  @media (max-width: 600px) { .zoom-hint { display: none; } }
+  .fs-btn {
+    position: absolute; top: 6px; right: 6px; z-index: 2;
+    font-family: var(--mono); font-size: 11px; line-height: 1;
+    padding: 5px 8px; border-radius: 4px; cursor: pointer;
+    color: var(--muted); background: var(--panel); border: 1px solid var(--line-strong);
+    opacity: 0.55;
+  }
+  .fs-btn:hover, .fs-btn:focus-visible { opacity: 1; color: var(--ink); }
+  .fs-overlay {
+    position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column;
+    background: var(--bg, var(--panel)); padding: 12px 16px 16px;
+  }
+  .fs-overlay .fs-head {
+    display: flex; align-items: baseline; gap: 14px; flex: none; margin-bottom: 8px;
+    font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--ink);
+  }
+  .fs-overlay .fs-head small { font-family: var(--mono); font-size: 11px; color: var(--faint); font-weight: 400; }
+  .fs-overlay .fs-close { margin-left: auto; position: static; opacity: 1; }
+  .fs-overlay .graph-holder { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .fs-overlay .graph-holder svg { width: 100%; height: 100%; max-width: none !important; min-width: 0 !important; }
+  .fs-overlay .node text { font-size: 12.5px; }
+  .fs-overlay .edge-label { font-size: 10.5px; }
+  .fs-overlay .edge-line { stroke-width: 1.6; }
   .dsm-stack { display: flex; flex-direction: column; gap: 14px; }
   .dsm-title {
     font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em;
@@ -396,9 +428,18 @@
 
   // ============================= layout ================================
   var ROW_H = 84, GAP_X = 26, NODE_H = 26, PAD = 26;
-  function nodeW(label) { return Math.max(44, label.length * 6.7 + 20); }
+  // fullscreen: more air between nodes and rows, wider boxes for untruncated labels
+  var FS_SP = { ROW_H: 132, GAP_X: 48, NODE_H: 30, PAD: 34, charW: 7.7, maxLabel: 60 };
+  var SP = { ROW_H: ROW_H, GAP_X: GAP_X, NODE_H: NODE_H, PAD: PAD, charW: 6.7, maxLabel: 30 };
+  function nodeW(label, sp) {
+    sp = sp || SP;
+    var txt = label.length > sp.maxLabel ? sp.maxLabel : label.length;
+    return Math.max(44, txt * sp.charW + 20);
+  }
 
-  function layout(model, A) {
+  function layout(model, A, sp) {
+    sp = sp || SP;
+    var ROW_H = sp.ROW_H, GAP_X = sp.GAP_X, NODE_H = sp.NODE_H, PAD = sp.PAD;
     var layers = [];
     for (var l = 0; l <= Math.max.apply(null, A.layerOf.concat(0)); l++) layers.push([]);
     A.ids.forEach(function (id, i) { layers[A.layerOf[i]].push(i); });
@@ -433,7 +474,7 @@
     }
 
     // initial x: pack each layer centered
-    var widths = A.ids.map(function (id) { return nodeW(model.nodes[id].label); });
+    var widths = A.ids.map(function (id) { return nodeW(model.nodes[id].label, sp); });
     var canvasW = 0;
     layers.forEach(function (L) {
       var total = L.reduce(function (a, i) { return a + widths[i]; }, 0) + GAP_X * (L.length - 1);
@@ -533,17 +574,102 @@
 
   var plateCounter = 0;
 
+  // Pan/zoom by rewriting the viewBox (text stays crisp at any zoom).
+  // Wheel zooms at the cursor: always in fullscreen, with Ctrl/⌘ inline so the
+  // page still scrolls. Drag pans once zoomed in. Buttons cover touch/keyboard.
+  function attachZoom(svg, gh, L, fs) {
+    var vb = { x: 0, y: 0, w: L.w, h: L.h }, MIN = 0.1, MAX = 1;
+    function apply() {
+      svg.setAttribute("viewBox", vb.x + " " + vb.y + " " + vb.w + " " + vb.h);
+      var zoomed = vb.w < L.w - 0.5;
+      svg.classList.toggle("zoomed", zoomed);
+      svg.style.touchAction = zoomed || fs ? "none" : "";
+    }
+    function clampPan() {
+      vb.x = Math.min(Math.max(vb.x, -vb.w * 0.5), L.w - vb.w * 0.5);
+      vb.y = Math.min(Math.max(vb.y, -vb.h * 0.5), L.h - vb.h * 0.5);
+    }
+    function zoomAt(factor, fx, fy) {
+      var nw = Math.min(L.w * MAX, Math.max(L.w * MIN, vb.w * factor));
+      var k = nw / vb.w;
+      vb.x = fx - (fx - vb.x) * k; vb.y = fy - (fy - vb.y) * k;
+      vb.w = nw; vb.h = vb.h * k;
+      if (vb.w >= L.w - 0.5) { vb = { x: 0, y: 0, w: L.w, h: L.h }; }
+      clampPan(); apply();
+    }
+    function toSvg(cx, cy) {
+      var r = svg.getBoundingClientRect();
+      var s = Math.max(vb.w / r.width, vb.h / r.height);
+      var ox = (r.width - vb.w / s) / 2, oy = (r.height - vb.h / s) / 2;
+      return { x: vb.x + (cx - r.left - ox) * s, y: vb.y + (cy - r.top - oy) * s, s: s };
+    }
+    svg.addEventListener("wheel", function (e) {
+      if (!fs && !(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      var p = toSvg(e.clientX, e.clientY);
+      zoomAt(Math.exp(e.deltaY * 0.0015), p.x, p.y);
+    }, { passive: false });
+    var drag = null;
+    svg.addEventListener("pointerdown", function (e) {
+      if (vb.w >= L.w - 0.5 || e.button !== 0) return;
+      drag = { x: e.clientX, y: e.clientY, vx: vb.x, vy: vb.y, s: toSvg(e.clientX, e.clientY).s };
+      svg.setPointerCapture(e.pointerId); svg.classList.add("panning");
+    });
+    svg.addEventListener("pointermove", function (e) {
+      if (!drag) return;
+      vb.x = drag.vx - (e.clientX - drag.x) * drag.s;
+      vb.y = drag.vy - (e.clientY - drag.y) * drag.s;
+      clampPan(); apply();
+    });
+    function endDrag() { drag = null; svg.classList.remove("panning"); }
+    svg.addEventListener("pointerup", endDrag);
+    svg.addEventListener("pointercancel", endDrag);
+    var bar = div("zoom-bar", gh);
+    [["+", "Zoom in", function () { zoomAt(0.7, vb.x + vb.w / 2, vb.y + vb.h / 2); }],
+     ["−", "Zoom out", function () { zoomAt(1 / 0.7, vb.x + vb.w / 2, vb.y + vb.h / 2); }],
+     ["⟲", "Reset zoom", function () { vb = { x: 0, y: 0, w: L.w, h: L.h }; apply(); }]
+    ].forEach(function (b) {
+      var btn = document.createElement("button");
+      btn.type = "button"; btn.className = "fs-btn"; btn.textContent = b[0];
+      btn.title = b[1]; btn.setAttribute("aria-label", b[1]);
+      btn.addEventListener("click", b[2]);
+      bar.appendChild(btn);
+    });
+    var hint = document.createElement("span");
+    hint.className = "zoom-hint";
+    hint.textContent = fs ? "wheel to zoom · drag to pan" : "Ctrl/⌘ + wheel to zoom · drag to pan";
+    bar.appendChild(hint);
+    // Screen position of an SVG point, relative to the holder (for the tooltip).
+    return function place(x, y) {
+      var r = svg.getBoundingClientRect(), hr = gh.getBoundingClientRect();
+      var s = Math.max(vb.w / r.width, vb.h / r.height);
+      var ox = (r.width - vb.w / s) / 2, oy = (r.height - vb.h / s) / 2;
+      return { left: r.left - hr.left + ox + (x - vb.x) / s, top: r.top - hr.top + oy + (y - vb.y) / s };
+    };
+  }
+
   // section: {title, model, A, diff?: {status per edge/node, before analysis}}
-  function renderGraphPanel(section, body) {
+  function renderGraphPanel(section, body, opts) {
+    opts = opts || {};
+    var fs = !!opts.fullscreen;
+    var sp = opts.sp || (fs ? FS_SP : SP);
     var model = section.model, A = section.A;
-    var L = layout(model, A);
+    var L = layout(model, A, sp);
     var gh = div("graph-holder", body);
     var pid = "p" + (++plateCounter);
     var svg = el("svg", { viewBox: "0 0 " + L.w + " " + L.h, role: "img",
+      preserveAspectRatio: "xMidYMid meet",
       "aria-label": section.title + ": " + A.n + " modules, " + model.edges.length + " edges" });
     gh.appendChild(svg);
-    svg.style.maxWidth = Math.min(L.w * 1.25, 1400) + "px";
-    if (L.w > 900) { svg.style.minWidth = "860px"; }
+    if (!fs) {
+      svg.style.maxWidth = Math.min(L.w * 1.25, 1400) + "px";
+      if (L.w > 900) { svg.style.minWidth = "860px"; }
+      var fsBtn = document.createElement("button");
+      fsBtn.type = "button"; fsBtn.className = "fs-btn"; fsBtn.textContent = "⛶ fullscreen";
+      fsBtn.title = "Open this graph fullscreen (Esc to close)";
+      fsBtn.addEventListener("click", function () { openFullscreen(section); });
+      gh.appendChild(fsBtn);
+    }
 
     var defs = el("defs", {}, svg);
     [["mk-dep", "var(--edge)", 1], ["mk-cyc", "var(--signal)", 1],
@@ -554,6 +680,7 @@
       p.style.fill = mdef[1]; p.style.opacity = mdef[2];
     });
 
+    var place = attachZoom(svg, gh, L, fs);
     var tip = div("tooltip", gh);
     var edgeEls = [], labelEls = [];
 
@@ -580,7 +707,8 @@
         var lx = 0.25 * t.x1 + 0.5 * qx + 0.25 * t.x2;
         var ly = 0.25 * t.y1 + 0.5 * qy + 0.25 * t.y2;
         var txt = el("text", { x: lx, y: ly - 3, "text-anchor": "middle", "class": "edge-label" }, svg);
-        txt.textContent = e.label.length > 26 ? e.label.slice(0, 25) + "…" : e.label;
+        var maxE = fs ? 60 : 26;
+        txt.textContent = e.label.length > maxE ? e.label.slice(0, maxE - 1) + "…" : e.label;
         labelEls.push(txt);
       } else { labelEls.push(null); }
     });
@@ -595,7 +723,7 @@
           (status !== "kept" ? ", " + status : "") }, svg);
       shapePath(node, g, box);
       var tx = el("text", { x: box.cx, y: box.cy + 3.8, "text-anchor": "middle" }, g);
-      tx.textContent = node.label.length > 30 ? node.label.slice(0, 29) + "…" : node.label;
+      tx.textContent = node.label.length > sp.maxLabel ? node.label.slice(0, sp.maxLabel - 1) + "…" : node.label;
 
       function on() {
         svg.classList.add("dimmed");
@@ -611,9 +739,9 @@
         (section.dsmCells[id] || []).forEach(function (c) { c.classList.add("hl"); });
         tip.textContent = id + " · in " + A.fanIn[ni] + " · out " + A.fanOut[ni] +
           (status !== "kept" ? " · " + status : "");
-        var r = svg.getBoundingClientRect();
-        tip.style.left = (box.cx / L.w * r.width) + "px";
-        tip.style.top = ((box.cy - box.h / 2) / L.h * r.height) + "px";
+        var pos = place(box.cx, box.cy - box.h / 2);
+        tip.style.left = pos.left + "px";
+        tip.style.top = pos.top + "px";
         tip.classList.add("show");
       }
       function off() {
@@ -627,6 +755,71 @@
       g.addEventListener("focus", on);
       g.addEventListener("blur", off);
     });
+  }
+
+  function openFullscreen(section) {
+    var ov = div("fs-overlay", document.body);
+    ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true");
+    var head = div("fs-head", ov);
+    head.appendChild(document.createTextNode(section.title));
+    var sm = document.createElement("small");
+    sm.textContent = section.A.n + " modules · " + section.model.edges.length + " edges · Esc to close";
+    head.appendChild(sm);
+    var close = document.createElement("button");
+    close.type = "button"; close.className = "fs-btn fs-close"; close.textContent = "✕ close";
+    head.appendChild(close);
+    // Fit-to-viewport layout: spacing is derived from the overlay's real pixel
+    // size so the graph fills the screen instead of being a scaled-up thumbnail;
+    // re-derived on every resize / fullscreen transition.
+    var raf = 0;
+    function fitSpacing() {
+      var availW = Math.max(320, ov.clientWidth - 32);
+      var availH = Math.max(240, ov.clientHeight - head.offsetHeight - 36);
+      var base = layout(section.model, section.A, FS_SP);
+      var seen = {}, layers = 0;
+      section.A.layerOf.forEach(function (l) { if (!seen[l]) { seen[l] = 1; layers++; } });
+      var rows = Math.max(1, layers - 1);
+      var rowH = (availH - FS_SP.PAD * 2 - 20 - FS_SP.NODE_H) / rows;
+      var gapX = FS_SP.GAP_X * (availW / base.w);
+      return {
+        ROW_H: Math.min(320, Math.max(80, rowH)),
+        GAP_X: Math.min(220, Math.max(24, gapX)),
+        NODE_H: FS_SP.NODE_H, PAD: FS_SP.PAD, charW: FS_SP.charW, maxLabel: FS_SP.maxLabel
+      };
+    }
+    function draw() {
+      var old = ov.querySelector(".graph-holder");
+      if (old) old.parentNode.removeChild(old);
+      renderGraphPanel(section, ov, { fullscreen: true, sp: fitSpacing() });
+    }
+    function scheduleDraw() { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); }
+    draw();
+    window.addEventListener("resize", scheduleDraw);
+    var prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function teardown() {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", scheduleDraw);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.body.style.overflow = prevOverflow;
+      if (ov.parentNode) ov.parentNode.removeChild(ov);
+    }
+    function exit() {
+      if (document.fullscreenElement === ov && document.exitFullscreen) {
+        document.exitFullscreen().catch(function () {}).then(teardown);
+      } else teardown();
+    }
+    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); exit(); } }
+    function onFsChange() { if (!document.fullscreenElement) teardown(); else scheduleDraw(); }
+    close.addEventListener("click", exit);
+    document.addEventListener("keydown", onKey);
+    if (ov.requestFullscreen) {
+      ov.requestFullscreen().then(function () {
+        document.addEventListener("fullscreenchange", onFsChange);
+      }).catch(function () {});
+    }
+    close.focus();
   }
 
   function renderDSM(model, A, holder, title, dsmCells) {
@@ -772,6 +965,17 @@
       }
       var ai = after.edges.findIndex(function (x) { return x.s === e.s && x.t === e.t; });
       return ai >= 0 ? Aa.cyc[ai] : false;
+    });
+    // Layers come from the AFTER graph. Layering the union would keep every knot
+    // the branch dissolved (its removed edges are still in the union) and draw
+    // the new shape as flat as the old one. Removed-only nodes keep their BEFORE
+    // layer, clamped into the after graph's range.
+    var topAfter = Math.max.apply(null, Aa.layerOf.concat(0));
+    union.order.forEach(function (id) {
+      var ui = Au.idx[id];
+      Au.layerOf[ui] = after.nodes[id]
+        ? Aa.layerOf[Aa.idx[id]]
+        : Math.min(Ab.layerOf[Ab.idx[id]], topAfter);
     });
     // fan-in/out shown on hover should reflect AFTER (or before, for removed nodes)
     union.order.forEach(function (id) {

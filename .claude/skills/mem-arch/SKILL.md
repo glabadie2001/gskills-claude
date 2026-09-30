@@ -1,7 +1,7 @@
 ---
 name: mem-arch
 description: Maintain the Engram architecture overview — a Live Mermaid diagram of what the codebase IS (SHA-verified against git) beside a Target diagram of what it SHOULD become, with an explicit gap list between them. Also renders an interactive X-ray report (computed layering, knots, hubs, DSM), extracts the real import graph, and diffs the architecture across branches.
-argument-hint: [update | target | gaps | render | extract | compare <base>..<head>]
+argument-hint: [update | target | gaps | render | extract | flow | compare <base>..<head>]
 when_to_use: Run `update` when the session brief or linter flags the architecture overview stale, or after structural work (new module, moved boundary, new external dependency). Run `target` to set or revise the idealized architecture. Run `render` to see the architecture as a diagnostic report, `extract` to check the diagram against the code's actual import graph, `compare` to see a refactor's architectural effect between two revs. Run with no argument for a freshness/gap status readout, or `gaps` to recompute the gap list.
 ---
 
@@ -62,17 +62,57 @@ The Engram viewer already renders these diagrams interactively in place; this mo
 
 The Live diagram is testimony; the import graph is forensics. Diffing them makes erosion visible.
 
-1. Build the file-level dependency graph with the ecosystem's extractor when one is available
-   (dependency-cruiser or madge for JS/TS, pydeps or grimp for Python, `go list -deps`, jdeps,
-   cargo-modules); fallback: grep import/require/use statements. Read-only; install nothing without asking.
-2. Collapse file edges onto the atlas cards' `paths:` globs — node IDs = card names, the same
-   IDs as Live. Drop self-edges and edges into cardless vendored code; keep external systems
-   only where Live names them.
-3. Diff against Live: **divergent** (in code, not drawn) and **absent** (drawn, not in code).
-   Report both — each one is either a stale diagram (fix via `update`) or real erosion (raise
-   it; offer a gap/task). Never silently rewrite Live from the extraction.
-4. Offer `render` with a diff section (`before` = Live, `source` = extracted) so the divergence
-   is visible, not just listed.
+1. Run the bundled extractor (stdlib only, installs nothing) from the repo root:
+   `python <skill-dir>/extract.py --memory <ROOT>/.claude/memory --out <tmp> [--src DIR ...]
+   [--skip-card testing-tooling ...] [--alias @/=./]`. It builds the file-level import
+   graph (Python `ast`; TS/JS specifier scan honoring the alias, type-only imports dropped),
+   collapses it onto the atlas cards' `paths:` globs and writes `extracted.json` +
+   `extracted.mmd`. Prefer it over ad-hoc grep; use dependency-cruiser/madge/pydeps only to
+   cross-check counts.
+2. Filing rules the collapse relies on (fix the ATLAS, not the tool, when they are wrong):
+   **most specific glob wins**, so a kernel/infra card may claim single files out of
+   another card's directory; `graph_exclude:` globs on a card drop composition roots and
+   entrypoints (DI root, `main`, workers that resolve ports from the root) from the graph
+   — they import everything by design and otherwise knot every module into one SCC.
+   Cross-cutting code (request context, tenant registry, telemetry, permission gate, URL
+   builders) belongs in its own card, never in the feature that happens to own the file.
+3. Read the report in this order: **file-level cycles** (the only true spaghetti signal —
+   zero means no circular import exists), then **knots** (module SCCs the X-ray will draw
+   as one row), then **two-way pairs**: for each, the WEAK direction is listed file by file.
+   Those back-edges are what close the cycle, and each one is either a misfiled
+   cross-cutting file (fix the card), a composition root (add `graph_exclude`), or real
+   coupling (raise it; offer a gap/task). Never silently rewrite Live from the extraction.
+3b. **Folder view (`--by-folder`, no atlas):** modules = directories
+   (`--folder-depth 2`, `--split api/adapters`, `--group "app=app (routes)"`,
+   `--exclude-file` for composition roots). Run it beside the card view whenever
+   the card graph looks worse without a code change: the card view measures the
+   ATLAS as much as the code, the folder view measures only the code. A knot in
+   the card view that is absent in the folder view is a filing error.
+4. Diff against Live: **divergent** (in code, not drawn) and **absent** (drawn, not in code);
+   report both. Then offer `render` with a diff section (`before` = Live, `source` =
+   `extracted.mmd`) so the divergence is visible, not just listed. External systems are not
+   import-derivable: carry Live's external edges into the extracted graph verbatim.
+
+## Mode: flow — the folder-first X-ray (code only, base vs HEAD)
+
+The default picture for "what did this branch do to the architecture". It needs no atlas, so it
+is also the view for repos without Engram cards. Folder graph first, cards last: the card graph
+measures atlas filing as much as code.
+
+1. Run the bundled builder from the repo root (stdlib only):
+   `python <skill-dir>/build_xray.py --base master --src DIR [--src DIR ...] --out xray.html [-- <folder flags>]`.
+   Always pass `--src` (else `.venv`/`node_modules` add phantom cycles). Folder flags after `--`
+   go to `extract.py --by-folder` for BOTH graphs: `--split api/adapters`, `--group app=app/routes`,
+   `--prefix features=app` (label a stack), `--exclude-file api/index.py` (composition root).
+   Flags must match on both sides or every node diffs as added or removed.
+2. It extracts HEAD and a temporary worktree of `--base`, then fills `xray.html` with three
+   sections: folder diff (base to HEAD), folder graph at HEAD, atlas-card graph at HEAD (skipped
+   when `.claude/memory/atlas` is absent, or with `--no-cards`). It prints knots and two-way pairs
+   per graph and removes the worktree.
+3. Read the result in this order: file-level cycles, knots, two-way pairs (the weak direction names
+   the back-edge files). A knot in the card graph but not the folder graph is a filing error: fix
+   the card globs (most specific glob wins; `entities/*/index.ts` also matches `entities/*/ui/index.ts`).
+4. Send the file rendered inline, or publish it as an Artifact (republish the same path to keep the URL).
 
 ## Mode: compare <base>..<head> — architectural effect of a branch
 
