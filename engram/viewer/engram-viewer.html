@@ -135,9 +135,37 @@
   .mg { position: relative; background: var(--panel); border: 1px solid var(--border);
     border-radius: 8px; padding: 12px 12px 8px; margin: .9em 0; overflow-x: auto; }
   .mg svg.mgsvg { display: block; width: 100%; height: auto; min-width: 480px; }
+  .mg-fs-btn { position: absolute; top: 6px; right: 6px; z-index: 2; opacity: .55;
+    font: 11px ui-monospace, Consolas, monospace; padding: 4px 8px; border-radius: 4px;
+    cursor: pointer; color: var(--muted); background: var(--panel); border: 1px solid var(--border); }
+  .mg-fs-btn:hover, .mg-fs-btn:focus-visible { opacity: 1; color: var(--text); }
+  .mg-fs { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column;
+    background: var(--bg); padding: 10px 16px 14px; }
+  .mg-fs .mg-fs-head { display: flex; align-items: baseline; gap: 12px; flex: none;
+    margin-bottom: 6px; font: 600 16px ui-sans-serif, system-ui, "Segoe UI", sans-serif; color: var(--text); }
+  .mg-fs .mg-fs-head small { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); }
+  .mg-fs .mg-fs-close { margin-left: auto; position: static; opacity: 1; }
+  .mg-fs .mg { flex: 1 1 auto; min-height: 0; overflow: auto; margin: 0;
+    display: flex; flex-direction: column; }
+  .mg-fs .mg svg.mgsvg { flex: 1 1 auto; min-height: 0; height: 100%; max-width: none !important; min-width: 0 !important; }
+  .mg-fs .mg .node text { font-size: 12.5px; }
+  .mg-fs .mg .elab { font-size: 10.5px; }
+  .mg-fs .mg .e { stroke-width: 1.6; }
   .mg .e { stroke: var(--muted); stroke-width: 1.3; fill: none; opacity: .55; }
   .mg .e.cyc { stroke: #c9862d; stroke-dasharray: 4 3; opacity: .9; }
   [data-theme="dark"] .mg .e.cyc { stroke: #d9a659; }
+  .mg .e.dot { stroke-dasharray: 2 3; }
+  /* Live vs Target overlay */
+  .mg .e.viol { stroke: #c0392b; opacity: .95; stroke-width: 1.8; stroke-dasharray: none; }
+  [data-theme="dark"] .mg .e.viol { stroke: #e0685a; }
+  .mg .e.ghost { stroke: #2f8f4f; stroke-dasharray: 5 4; opacity: .8; }
+  [data-theme="dark"] .mg .e.ghost { stroke: #6fbf95; }
+  .mg .mk-viol { fill: #c0392b; }
+  [data-theme="dark"] .mg .mk-viol { fill: #e0685a; }
+  .mg .mk-ghost { fill: #2f8f4f; }
+  [data-theme="dark"] .mg .mk-ghost { fill: #6fbf95; }
+  .mg .node.offt .shp { stroke: #c9862d; stroke-dasharray: 4 2; stroke-width: 1.5; }
+  [data-theme="dark"] .mg .node.offt .shp { stroke: #d9a659; }
   .mg .mk-dep { fill: var(--muted); }
   .mg .mk-cyc { fill: #c9862d; }
   [data-theme="dark"] .mg .mk-cyc { fill: #d9a659; }
@@ -607,6 +635,9 @@ function mdToHtml(md) {
       while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]);
       i++;
       if (info === "mermaid") {                                 // rendered in place, see renderMermaidBlocks()
+        let h = "";                                             // nearest heading above: tells Live from Target
+        for (let k = i - code.length - 3; k >= 0; k--) if (/^#{1,6}\s/.test(lines[k])) { h = lines[k]; break; }
+        mgHead[mgQueue.length] = h.replace(/^#+\s*/, "");
         mgQueue.push(code.join("\n"));
         html += "<div class='mg' data-mg='" + (mgQueue.length - 1) + "'></div>";
       } else html += "<pre><code>" + esc(code.join("\n")) + "</code></pre>";
@@ -778,7 +809,7 @@ function linkTargets(p, text) {
    hover traces a module, amber dashes mark cycle edges, and a node whose id
    resolves to an atlas card opens that card on click. Unparseable blocks fall
    back to the old <pre> text. */
-let mgQueue = [];
+let mgQueue = [], mgHead = [];
 const MG_NODE = /^([A-Za-z0-9_.:\/-]+)\s*(\[\(([^)]*)\)\]|>\s*([^\]]*)\]|\[([^\]]*)\]|\(\(([^)]*)\)\)|\(([^)]*)\)|\{([^}]*)\})?\s*$/;
 function mgParse(src) {
   const nodes = new Map(), edges = [], seen = new Set();
@@ -798,16 +829,18 @@ function mgParse(src) {
     line = line.replace(/%%.*$/, "").trim();
     if (!line || /^(graph|flowchart)\s+(TB|TD|BT|RL|LR)\b/.test(line) ||
         /^(subgraph\b|end$|classDef\b|class\b|style\b|linkStyle\b|direction\b|click\b)/.test(line)) continue;
-    const parts = line.split(/\s*(?:--+|-\.+-*|==+)>\s*/);
+    // odd indexes hold the arrow itself, so a dotted `-.->` edge can be told apart
+    const parts = line.split(/\s*(--+>|-\.+-*>|==+>)\s*/);
     if (parts.length > 1) {
       let prev = ref(parts[0]);
-      for (let k = 1; k < parts.length; k++) {
+      for (let k = 2; k < parts.length; k += 2) {
         let seg = parts[k], label = "";
         const lm = seg.match(/^\|([^|]*)\|\s*([\s\S]*)$/);
         if (lm) { label = lm[1].trim(); seg = lm[2]; }
         const cur = ref(seg);
         if (prev && cur && !seen.has(prev + "→" + cur)) {
-          seen.add(prev + "→" + cur); edges.push({ s: prev, t: cur, label });
+          seen.add(prev + "→" + cur);
+          edges.push({ s: prev, t: cur, label, dotted: /^-\./.test(parts[k - 1]) });
         }
         prev = cur;
       }
@@ -861,9 +894,13 @@ function mgAnalyze(g) {
   return { idx, fanIn, fanOut, cyc, layerOf, depth: maxLp + 1, tangle, hub,
            cycles: cyc.filter(Boolean).length };
 }
-function mgLayout(g, A) {
-  const ROW = 72, GAP = 24, PAD = 18, NH = 24;
-  const w = id => Math.max(40, g.nodes.get(id).label.length * 6.4 + 18);
+const MG_SP = { ROW: 72, GAP: 24, PAD: 18, NH: 24, charW: 6.4, maxLabel: 30 };
+// fullscreen: more air between nodes and rows, room for untruncated labels
+const MG_FS_SP = { ROW: 128, GAP: 46, PAD: 30, NH: 30, charW: 7.6, maxLabel: 60 };
+function mgLayout(g, A, sp) {
+  sp = sp || MG_SP;
+  const ROW = sp.ROW, GAP = sp.GAP, PAD = sp.PAD, NH = sp.NH;
+  const w = id => Math.max(40, Math.min(g.nodes.get(id).label.length, sp.maxLabel) * sp.charW + 18);
   const widths = g.ids.map(w);
   let layers = [];
   g.ids.forEach((id, i) => {
@@ -918,8 +955,47 @@ function mgLayout(g, A) {
   return { geo, w: (maxX - minX) + PAD * 2, h: PAD * 2 + 12 + (layers.length - 1) * ROW + NH };
 }
 let mgUid = 0;
-function mgRender(host, g) {
-  const A = mgAnalyze(g), L = mgLayout(g, A), NS = "http://www.w3.org/2000/svg";
+function mgOpenFullscreen(g) {
+  const ov = document.createElement("div");
+  ov.className = "mg-fs"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true");
+  const head = document.createElement("div");
+  head.className = "mg-fs-head";
+  head.append("Architecture graph");
+  const sm = document.createElement("small");
+  sm.textContent = g.ids.length + " modules · " + g.edges.length + " edges · Esc to close";
+  head.appendChild(sm);
+  const close = document.createElement("button");
+  close.type = "button"; close.className = "mg-fs-btn mg-fs-close"; close.textContent = "✕ close";
+  head.appendChild(close);
+  ov.appendChild(head);
+  const host = document.createElement("div");
+  host.className = "mg"; ov.appendChild(host);
+  document.body.appendChild(ov);
+  mgRender(host, g, { fullscreen: true });
+  const prevOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  const teardown = () => {
+    document.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("fullscreenchange", onFsChange);
+    document.body.style.overflow = prevOverflow;
+    ov.remove();
+  };
+  const exit = () => {
+    if (document.fullscreenElement === ov && document.exitFullscreen)
+      document.exitFullscreen().catch(() => {}).then(teardown);
+    else teardown();
+  };
+  const onKey = e => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); exit(); } };
+  const onFsChange = () => { if (!document.fullscreenElement) teardown(); };
+  close.addEventListener("click", exit);
+  document.addEventListener("keydown", onKey, true);
+  if (ov.requestFullscreen)
+    ov.requestFullscreen().then(() => document.addEventListener("fullscreenchange", onFsChange)).catch(() => {});
+  close.focus();
+}
+function mgRender(host, g, opts) {
+  const fs = !!(opts && opts.fullscreen), sp = fs ? MG_FS_SP : MG_SP;
+  const A = mgAnalyze(g), L = mgLayout(g, A, sp), NS = "http://www.w3.org/2000/svg";
   const uid = "mg" + (++mgUid);
   const mk = (tag, attrs, parent) => {
     const e = document.createElementNS(NS, tag);
@@ -929,12 +1005,21 @@ function mgRender(host, g) {
   };
   host.textContent = "";
   const svg = mk("svg", { "class": "mgsvg", viewBox: "0 0 " + L.w + " " + L.h, role: "img",
+    preserveAspectRatio: "xMidYMid meet",
     "aria-label": "architecture graph: " + g.ids.length + " modules, " + g.edges.length + " edges" });
   host.appendChild(svg);
-  svg.style.maxWidth = Math.min(L.w * 1.25, 1200) + "px";
-  if (L.w <= 520) svg.style.minWidth = "0";
+  if (!fs) {
+    svg.style.maxWidth = Math.min(L.w * 1.25, 1200) + "px";
+    if (L.w <= 520) svg.style.minWidth = "0";
+    const fsBtn = document.createElement("button");
+    fsBtn.type = "button"; fsBtn.className = "mg-fs-btn"; fsBtn.textContent = "⛶ fullscreen";
+    fsBtn.title = "Open this graph fullscreen (Esc to close)";
+    fsBtn.addEventListener("click", () => mgOpenFullscreen(g));
+    host.appendChild(fsBtn);
+  }
   const defs = mk("defs", {}, svg);
-  for (const kind of ["dep", "cyc"]) {
+  const O = g.overlay;
+  for (const kind of ["dep", "cyc", "viol", "ghost"]) {
     const m = mk("marker", { id: uid + "-" + kind, viewBox: "0 0 8 8", refX: 7, refY: 4,
       markerWidth: 6.5, markerHeight: 6.5, orient: "auto-start-reverse" }, defs);
     mk("path", { d: "M0,0.6 L7.4,4 L0,7.4 Z", "class": "mk-" + kind }, m);
@@ -953,24 +1038,45 @@ function mgRender(host, g) {
     const dx = t.x2 - t.x1, dy = t.y2 - t.y1, len = Math.sqrt(dx * dx + dy * dy) || 1;
     const bow = 0.06 * len, mx = (t.x1 + t.x2) / 2, my = (t.y1 + t.y2) / 2;
     const qx = mx - dy / len * bow, qy = my + dx / len * bow;
-    edgeEls.push(mk("path", {
+    const bad = O && O.viol.has(i);
+    const pe = mk("path", {
       d: "M" + t.x1 + "," + t.y1 + " Q" + qx + "," + qy + " " + t.x2 + "," + t.y2,
-      "class": "e" + (A.cyc[i] ? " cyc" : ""),
-      "marker-end": "url(#" + uid + "-" + (A.cyc[i] ? "cyc" : "dep") + ")"
-    }, svg));
+      "class": "e" + (A.cyc[i] ? " cyc" : "") + (e.dotted ? " dot" : "") + (bad ? " viol" : ""),
+      "marker-end": "url(#" + uid + "-" + (bad ? "viol" : A.cyc[i] ? "cyc" : "dep") + ")"
+    }, svg);
+    if (bad) mk("title", {}, pe).textContent = e.s + " → " + e.t + ": not in the Target architecture";
+    edgeEls.push(pe);
     if (e.label) {
       const tx = mk("text", { x: 0.25 * t.x1 + 0.5 * qx + 0.25 * t.x2,
         y: 0.25 * t.y1 + 0.5 * qy + 0.25 * t.y2 - 3, "text-anchor": "middle", "class": "elab" }, svg);
-      tx.textContent = e.label.length > 26 ? e.label.slice(0, 25) + "…" : e.label;
+      const maxE = fs ? 60 : 26;
+      tx.textContent = e.label.length > maxE ? e.label.slice(0, maxE - 1) + "…" : e.label;
       labEls.push(tx);
     } else labEls.push(null);
+  });
+  // Target edges Live hasn't built yet: dotted, bowed the other way so they don't
+  // sit on top of an existing edge between the same pair
+  const ghostEls = [];
+  if (O) O.ghosts.forEach(e => {
+    const t = trim(L.geo[e.s], L.geo[e.t]);
+    const dx = t.x2 - t.x1, dy = t.y2 - t.y1, len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const bow = -0.12 * len, mx = (t.x1 + t.x2) / 2, my = (t.y1 + t.y2) / 2;
+    const qx = mx - dy / len * bow, qy = my + dx / len * bow;
+    const pe = mk("path", {
+      d: "M" + t.x1 + "," + t.y1 + " Q" + qx + "," + qy + " " + t.x2 + "," + t.y2,
+      "class": "e ghost", "marker-end": "url(#" + uid + "-ghost)"
+    }, svg);
+    mk("title", {}, pe).textContent = e.s + " → " + e.t + ": in the Target, not built yet" +
+      (e.label ? " (" + e.label + ")" : "");
+    ghostEls.push({ el: pe, s: e.s, t: e.t });
   });
   const tip = document.createElement("div");
   tip.className = "mg-tip"; host.appendChild(tip);
   g.ids.forEach(id => {
     const node = g.nodes.get(id), box = L.geo[id], ni = A.idx.get(id);
     const card = resolveWiki(id);
-    const gr = mk("g", { "class": "node" + (node.ext ? " ext" : "") + (card ? " lnk" : ""),
+    const offT = O && O.offTarget.has(id);
+    const gr = mk("g", { "class": "node" + (node.ext ? " ext" : "") + (card ? " lnk" : "") + (offT ? " offt" : ""),
       tabindex: 0, "data-n": id, role: card ? "link" : "img",
       "aria-label": id + ": fan-in " + A.fanIn[ni] + ", fan-out " + A.fanOut[ni] +
         (card ? " — open atlas card" : "") }, svg);
@@ -990,7 +1096,7 @@ function mgRender(host, g) {
       mk("rect", { "class": "shp", x: x, y: y, width: box.w, height: box.h, rx: 4 }, gr);
     }
     const tx = mk("text", { x: box.cx, y: box.cy + 3.8, "text-anchor": "middle" }, gr);
-    tx.textContent = node.label.length > 30 ? node.label.slice(0, 29) + "…" : node.label;
+    tx.textContent = node.label.length > sp.maxLabel ? node.label.slice(0, sp.maxLabel - 1) + "…" : node.label;
     const on = () => {
       svg.classList.add("dim"); gr.classList.add("on");
       g.edges.forEach((e, i) => {
@@ -1000,8 +1106,12 @@ function mgRender(host, g) {
         const other = svg.querySelector("[data-n='" + (e.s === id ? e.t : e.s) + "']");
         if (other) other.classList.add("on");
       });
+      ghostEls.forEach(ge => { if (ge.s === id || ge.t === id) ge.el.classList.add("on"); });
+      const nViol = O ? g.edges.filter((e, i) => O.viol.has(i) && (e.s === id || e.t === id)).length : 0;
+      const nGhost = ghostEls.filter(ge => ge.s === id || ge.t === id).length;
       tip.textContent = id + " · in " + A.fanIn[ni] + " · out " + A.fanOut[ni] +
-        (card ? " · click to open card" : "");
+        (offT ? " · not in Target" : "") + (nViol ? " · " + nViol + " off-target" : "") +
+        (nGhost ? " · " + nGhost + " missing" : "") + (card ? " · click to open card" : "");
       const r = svg.getBoundingClientRect(), hr = host.getBoundingClientRect();
       tip.style.left = (r.left - hr.left + host.scrollLeft + box.cx / L.w * r.width) + "px";
       tip.style.top = (r.top - hr.top + (box.cy - box.h / 2) / L.h * r.height) + "px";
@@ -1040,13 +1150,55 @@ function mgRender(host, g) {
   if (A.cycles) chip("cycle edges", A.cycles + "/" + g.edges.length, true);
   chip("depth", String(A.depth));
   if (A.hub.name) chip("hub", A.hub.name + " " + A.hub.fi + "×" + A.hub.fo, A.hub.score >= 12);
+  if (O) {
+    chip("vs target", O.viol.size + " off-target · " + O.ghosts.length + " missing", O.viol.size > 0);
+    if (O.offTarget.size) chip("to dissolve", O.offTarget.size + " modules", true);
+    if (O.newNodes) chip("to build", O.newNodes + " modules · " + O.unbuilt + " edges");
+    chips.lastChild.title = "Red = Live edge the Target does not have · green dotted = Target edge not built yet · " +
+      "amber outline = Live module with no place in the Target";
+  }
   host.appendChild(chips);
 }
+/* Live vs Target overlay (architecture.md): a page with one block under a "Live"
+   heading and one under a "Target" heading gets the Live graph annotated against
+   the Target. Solid Live edges between two Target modules that the Target lacks are
+   violations; Target edges between two Live modules that Live lacks are drawn as
+   dotted ghosts (where the link should be); Live modules absent from the Target are
+   marked to dissolve. Dotted Live edges are provenance notes, never violations. */
+function mgOverlay(live, target) {
+  const want = new Set(target.edges.map(e => e.s + "→" + e.t));
+  const have = new Set(live.edges.map(e => e.s + "→" + e.t));
+  const viol = new Set();
+  live.edges.forEach((e, i) => {
+    if (!e.dotted && target.nodes.has(e.s) && target.nodes.has(e.t) && !want.has(e.s + "→" + e.t)) viol.add(i);
+  });
+  const ghosts = [];
+  let unbuilt = 0;
+  target.edges.forEach(e => {
+    if (have.has(e.s + "→" + e.t)) return;
+    if (live.nodes.has(e.s) && live.nodes.has(e.t)) ghosts.push({ s: e.s, t: e.t, label: e.label });
+    else unbuilt++;
+  });
+  const offTarget = new Set(live.ids.filter(id => !target.nodes.has(id)));
+  return { viol, ghosts, offTarget, unbuilt, newNodes: target.ids.filter(id => !live.nodes.has(id)).length };
+}
 function renderMermaidBlocks() {
-  $("content").querySelectorAll("div.mg[data-mg]").forEach(d => {
+  const blocks = [...$("content").querySelectorAll("div.mg[data-mg]")];
+  const liveI = blocks.findIndex(d => /\blive\b/i.test(mgHead[+d.dataset.mg] || ""));
+  const tgtI = blocks.findIndex(d => /\btarget\b/i.test(mgHead[+d.dataset.mg] || ""));
+  let overlay = null;
+  if (liveI >= 0 && tgtI >= 0) {
+    try {
+      const live = mgParse(mgQueue[+blocks[liveI].dataset.mg] || "");
+      const tgt = mgParse(mgQueue[+blocks[tgtI].dataset.mg] || "");
+      if (live.edges.length && tgt.edges.length) overlay = mgOverlay(live, tgt);
+    } catch (e) { overlay = null; }
+  }
+  blocks.forEach((d, bi) => {
     const src = mgQueue[+d.dataset.mg] || "";
     try {
       const g = mgParse(src);
+      if (bi === liveI && overlay) g.overlay = overlay;
       if (g.edges.length) { mgRender(d, g); return; }
     } catch (e) { /* fall through to text */ }
     const pre = document.createElement("pre");

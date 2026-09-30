@@ -3,6 +3,8 @@ module: example-module
 paths:
   - src/example/**
   - lib/shared/example.ts
+graph_exclude:
+  - src/example/main.ts
 verified: 0000000
 verified_date: 2026-01-01
 verified_by: claude-model-id (effort)
@@ -14,6 +16,14 @@ verified_by: claude-model-id (effort)
        git-pathspec compatible: NO brace expansion like src/{a,b}/** (git matches nothing,
        silently breaking freshness — use two entries instead). Verify each glob matches
        files: `git ls-files '<glob>'` must produce NON-EMPTY output.
+     graph_exclude (optional): globs /mem-arch extract drops from the import graph —
+       composition roots and entrypoints that import everything BY DESIGN (a DI root,
+       main.ts, a worker that resolves ports from the root). Still part of `paths:`
+       for freshness; excluded only from the module graph so they do not knot it.
+       Filing rule the graph relies on: the MOST SPECIFIC glob wins, so a card may
+       claim single cross-cutting files out of another card's directory. Cross-cutting
+       code (request context, tenant registry, telemetry, permission gate) belongs in
+       its own kernel/infra card, never in the feature that happens to own the file.
      verified: short git SHA of a COMMIT the body was last checked against, or 0000000 =
        ASSUMED (drafted, never verified — new cards are born this way; /mem-sync attests).
      verified_by: exact model id (+ effort if known) of the model that actually read the
